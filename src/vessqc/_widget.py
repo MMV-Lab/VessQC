@@ -15,7 +15,7 @@ import SimpleITK as sitk
 import numpy as np
 import warnings
 from pathlib import Path
-from qtpy.QtCore import Qt
+from qtpy.QtCore import QSize, Qt
 from qtpy.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -24,6 +24,7 @@ from qtpy.QtWidgets import (
     QLabel,
     QMainWindow,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -93,7 +94,8 @@ class VessQC(QWidget):
 
         uncertainty_data = sitk.ReadImage(uncertainty_file)
         self.uncertainty = sitk.GetArrayFromImage(uncertainty_data)
-        self.uncert_values = np.unique(self.uncertainty)
+        self.uncert_values, self.counts = np.unique(self.uncertainty, \
+            return_counts=True)
 
         prediction_data = sitk.ReadImage(prediction_file)
         self.prediction = sitk.GetArrayFromImage(prediction_data)
@@ -109,47 +111,48 @@ class VessQC(QWidget):
             blending='additive')
 
     def btn_uncertainty(self):
-        # Define a pop-up window for the uncertainty-list
-        self.uncertainty_list = QWidget()
-        self.uncertainty_list.setWindowTitle('napari')
+        # Define a pop-up window for the uncertainty list
+        self.pop_up_window = QWidget()
+        self.pop_up_window.setWindowTitle('napari')
+        self.pop_up_window.setMinimumSize(QSize(300, 300))
 
-        # Define a group box inside the uncertanty list
+        # define a scroll area inside the pop-up window
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+
+        # Define a group box inside the scroll area
         group_box = QGroupBox('Uncertainty List')
-
-        # Define some buttons and select a few uncertainty values for the labels
-        button5 = QPushButton('Area 5')
-        button5.clicked.connect(self.button_clicked)
-        value5 = self.uncert_values[5]
-        label5 = QLabel(str(value5))
-
-        button8 = QPushButton('Area 8')
-        button8.clicked.connect(self.button_clicked)
-        value8 = self.uncert_values[8]
-        label8 = QLabel(str(value8))
-
-        button12 = QPushButton('Area 12')
-        button12.clicked.connect(self.button_clicked)
-        value12 = self.uncert_values[12]
-        label12 = QLabel(str(value12))
+        scroll_area.setWidget(group_box)
 
         # add widgets to the group box
         self.group_box_layout = QGridLayout()
         self.group_box_layout.addWidget(QLabel('Area'), 0, 0)
         self.group_box_layout.addWidget(QLabel('Uncertainty'), 0, 1)
-        self.group_box_layout.addWidget(button5, 1, 0)
-        self.group_box_layout.addWidget(label5, 1, 1)
-        self.group_box_layout.addWidget(button8, 2, 0)
-        self.group_box_layout.addWidget(label8, 2, 1)
-        self.group_box_layout.addWidget(button12, 3, 0)
-        self.group_box_layout.addWidget(label12, 3, 1)
+        self.group_box_layout.addWidget(QLabel('Counts'), 0, 2)
+
+        # Define buttons and select uncertainty values for the labels
+        n = len(self.uncert_values)
+        for i in range(1, n):
+            text1 = 'Area ' + str(i)
+            button = QPushButton(text1)
+            button.clicked.connect(self.button_clicked)
+            value = self.uncert_values[i]
+            label1 = QLabel(str(value))
+            value = self.counts[i]
+            label2 = QLabel(str(value))
+
+            self.group_box_layout.addWidget(button, i, 0)
+            self.group_box_layout.addWidget(label1, i, 1)
+            self.group_box_layout.addWidget(label2, i, 2)
+
         group_box.setLayout(self.group_box_layout)
 
-        uncertainty_list_layout = QVBoxLayout()
-        uncertainty_list_layout.addWidget(group_box)
-        self.uncertainty_list.setLayout(uncertainty_list_layout)
+        pop_up_window_layout = QVBoxLayout()
+        pop_up_window_layout.addWidget(scroll_area)
+        self.pop_up_window.setLayout(pop_up_window_layout)
 
         # Show the pop-up window
-        self.uncertainty_list.show()
+        self.pop_up_window.show()
 
     def button_clicked(self):
         # index = self.group_box_layout.indexOf(self.sender())
@@ -179,6 +182,6 @@ class VessQC(QWidget):
         print('std', np.std(image))
 
     def on_close(self):
-        print("on_close")
-        if hasattr(self, 'uncertainty_list'):
-            self.uncertainty_list.close()
+        print("Good by!")
+        if hasattr(self, 'pop_up_window'):
+            self.pop_up_window.close()
