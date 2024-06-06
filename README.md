@@ -1,5 +1,4 @@
 # VessQC
-<<<<<<< HEAD
 
 [![License BSD-3](https://img.shields.io/pypi/l/VessQC.svg?color=green)](https://github.com/MMV-Lab/VessQC/raw/main/LICENSE)
 [![PyPI](https://img.shields.io/pypi/v/VessQC.svg?color=green)](https://pypi.org/project/VessQC)
