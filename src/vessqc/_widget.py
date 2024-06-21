@@ -102,7 +102,7 @@ class VessQC(QWidget):
 
         # Show the image in Napari
         self.viewer.add_image(self.image, name='Data')
-        self.viewer.dims.ndisplay=3
+        # self.viewer.dims.ndisplay=3
 
     def btn_segmentation(self):
         # Show prediction and uncertainty in Napari

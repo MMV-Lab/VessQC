@@ -233,12 +233,12 @@ class CrossWidget(QCheckBox):
         self.layer.data = vec
 
 
-class ExampleWidget(QWidget):
+#class ExampleWidget(QWidget):
     """
     Dummy widget showcasing how to place additional widgets to the right
     of the additional viewers.
     """
-
+    """
     def __init__(self):
         super().__init__()
         self.btn = QPushButton("Perform action")
@@ -248,7 +248,7 @@ class ExampleWidget(QWidget):
         layout.addWidget(self.btn)
         layout.addStretch(1)
         self.setLayout(layout)
-
+    """
 
 class MultipleViewerWidget(QSplitter):
     """The main widget of the example."""
@@ -261,11 +261,11 @@ class MultipleViewerWidget(QSplitter):
         self._block = False
         self.qt_viewer1 = QtViewerWrap(viewer, self.viewer_model1)
         self.qt_viewer2 = QtViewerWrap(viewer, self.viewer_model2)
-        self.tab_widget = QTabWidget()
-        w1 = ExampleWidget()
-        w2 = ExampleWidget()
-        self.tab_widget.addTab(w1, "Sample 1")
-        self.tab_widget.addTab(w2, "Sample 2")
+        # self.tab_widget = QTabWidget()
+        # w1 = ExampleWidget()
+        # w2 = ExampleWidget()
+        # self.tab_widget.addTab(w1, "Sample 1")
+        # self.tab_widget.addTab(w2, "Sample 2")
         viewer_splitter = QSplitter()
         viewer_splitter.setOrientation(Qt.Vertical)
         viewer_splitter.addWidget(self.qt_viewer1)
@@ -273,7 +273,7 @@ class MultipleViewerWidget(QSplitter):
         viewer_splitter.setContentsMargins(0, 0, 0, 0)
 
         self.addWidget(viewer_splitter)
-        self.addWidget(self.tab_widget)
+        # self.addWidget(self.tab_widget)
 
         self.viewer.layers.events.inserted.connect(self._layer_added)
         self.viewer.layers.events.removed.connect(self._layer_removed)
