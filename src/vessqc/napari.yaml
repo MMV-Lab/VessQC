@@ -6,16 +6,19 @@ visibility: public
 categories: ["Annotation", "Segmentation", "Acquisition"]
 contributions:
   commands:
-    - id: VessQC.get_reader
-      python_name: vessqc._reader:napari_get_reader
-      title: Open data with Vessel Quality Check
-    - id: VessQC.make_qwidget
-      python_name: vessqc:VessQC
-      title: Make example QWidget
-  readers:
-    - command: VessQC.get_reader
-      accepts_directories: false
-      filename_patterns: ['*.nii']
+    - id: VessQC.make_vessqc
+      python_name: vessqc._widget:VessQC
+      title: Make VessQC
+    - id: VessQC.make_crosswidget
+      python_name: vessqc._mv_widget:CrossWidget
+      title: Make CrossWidget
+    - id: VessQC.make_multipleviewerwidget
+      python_name: vessqc._mv_widget:MultipleViewerWidget
+      title: Make MultipleViewerWidget
   widgets:
-    - command: VessQC.make_qwidget
+    - command: VessQC.make_vessqc
       display_name: VessQC
+    - command: VessQC.make_crosswidget
+      display_name: CrossWidget
+    - command: VessQC.make_multipleviewerwidget
+      display_name: MultipleViewerWidget
