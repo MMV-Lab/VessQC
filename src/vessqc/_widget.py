@@ -1,19 +1,14 @@
 """
-This module contains four napari widgets declared in
-different ways:
-
-- a `QWidget` subclass. This provides maximal flexibility but requires
-    full specification of widget layouts, callbacks, events, etc.
-
-References:
+Reference:
 - Widget specification: https://napari.org/stable/plugins/guides.html?#widgets
-- magicgui docs: https://pyapp-kit.github.io/magicgui/
 """
 from typing import TYPE_CHECKING
 
 import SimpleITK as sitk
 import numpy as np
 import warnings
+# import inspect
+from scipy import ndimage
 from pathlib import Path
 from qtpy.QtCore import QSize, Qt
 from qtpy.QtWidgets import (
@@ -28,7 +23,7 @@ from qtpy.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-# from skimage.util import img_as_float
+from vessqc._mv_widget import CrossWidget, MultipleViewerWidget
 
 if TYPE_CHECKING:
     import napari
@@ -84,31 +79,40 @@ class VessQC(QWidget):
         filename = QFileDialog.getOpenFileName(self, 'Input file', filter='*.nii')
         image_file = Path(filename[0])
         parent = image_file.parent        # directory
-        uncertainty_file = parent / 'Uncertainty.nii'
-        prediction_file = parent / 'Prediction.nii'
 
         # Load the data files
         image_data = sitk.ReadImage(image_file)
         self.image = sitk.GetArrayFromImage(image_data)
         # self.show_info(self.image)
 
+        uncertainty_file = parent / 'Uncertainty.nii'
         uncertainty_data = sitk.ReadImage(uncertainty_file)
         self.uncertainty = sitk.GetArrayFromImage(uncertainty_data)
         self.uncert_values, self.counts = np.unique(self.uncertainty, \
             return_counts=True)
 
+        prediction_file = parent / 'Prediction.nii'
         prediction_data = sitk.ReadImage(prediction_file)
         self.prediction = sitk.GetArrayFromImage(prediction_data)
 
+        # Call the Multiple Viewer and the Cross widget
+        dock_widget = MultipleViewerWidget(self.viewer)
+        cross = CrossWidget(self.viewer)
+
+        self.viewer.window.add_dock_widget(dock_widget, name="Sample")
+        self.viewer.window.add_dock_widget(cross, name="Cross", area="left")
+
         # Show the image in Napari
-        self.viewer.add_image(self.image, name='Data')
-        # self.viewer.dims.ndisplay=3
+        self.viewer.add_image(self.image, name='Input_Vol')
+        # self.viewer.dims.ndisplay = 3
 
     def btn_segmentation(self):
-        # Show prediction and uncertainty in Napari
+        # Show prediction in Napari
         self.viewer.add_labels(self.prediction, name='Prediction')
-        self.viewer.add_image(self.uncertainty, name='Uncertainty', \
+        # Save uncertainty as layer, but don't show it
+        uncert = self.viewer.add_image(self.uncertainty, name='Uncertainty', \
             blending='additive')
+        uncert.visible = False
 
     def btn_uncertainty(self):
         # Define a pop-up window for the uncertainty list
@@ -155,17 +159,21 @@ class VessQC(QWidget):
         self.pop_up_window.show()
 
     def button_clicked(self):
-        # index = self.group_box_layout.indexOf(self.sender())
-        # text2 = self.group_box_layout.itemAt(index + 1).widget().text()
-
         text1 = self.sender().text()        # name of the button: Area nn
         index = int(text1[5:])              # number of the area
         value = self.uncert_values[index]   # uncertainty value of the area
 
         indices = np.where(self.uncertainty == value)   # find all data points
         area = np.zeros(self.uncertainty.shape, dtype=np.int8)
-        area[indices] = index + 1           # build a new label layer
-        self.viewer.add_labels(area, name=text1)
+        area[indices] = index + 1          # build a new label layer
+
+        # Find the center of the data points
+        centroid = ndimage.center_of_mass(area)
+        centroid2 = (int(centroid[0]), int(centroid[1]), int(centroid[2]))
+        print('Centroid', centroid2)
+        x = self.viewer.add_labels(area, name=text1)
+        self.viewer.dims.current_step = centroid2
+        
 
     def show_info(self, image):
         print('type',  type(image))
