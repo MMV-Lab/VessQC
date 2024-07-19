@@ -4,10 +4,12 @@ Reference:
 """
 from typing import TYPE_CHECKING
 
-import SimpleITK as sitk
 import numpy as np
+import json
+import SimpleITK as sitk
+import tempfile
+import time
 import warnings
-# import inspect
 from scipy import ndimage
 from pathlib import Path
 from qtpy.QtCore import QSize, Qt
@@ -22,6 +24,7 @@ from qtpy.QtWidgets import (
     QScrollArea,
     QVBoxLayout,
     QWidget,
+    QSizePolicy,
 )
 from vessqc._mv_widget import CrossWidget, MultipleViewerWidget
 
@@ -32,9 +35,12 @@ if TYPE_CHECKING:
 class VessQC(QWidget):
     # your QWidget.__init__ can optionally request the napari viewer instance
     # use a type annotation of 'napari.viewer.Viewer' for any parameter
+    # (03.05.2024)
     def __init__(self, viewer: "napari.viewer.Viewer"):
         super().__init__()
         self.viewer = viewer
+        self.parent = tempfile.gettempdir()     # Directory for temporari files
+        self.areas = []                         # List of dictionaries
 
         # Define some labels and buttons
         label1 = QLabel('Vessel quality check')
@@ -56,7 +62,13 @@ class VessQC(QWidget):
 
         btnUncertainty = QPushButton('Load uncertainty list')
         btnUncertainty.clicked.connect(self.btn_uncertainty)
-        
+
+        btnSave = QPushButton('Save the list')
+        btnSave.clicked.connect(self.btn_save)
+
+        btnReload = QPushButton('Reload the lists')
+        btnReload.clicked.connect(self.btn_reload)
+
         self.setLayout(QVBoxLayout())
         self.layout().addWidget(label1)
         self.layout().addWidget(btnLoad)
@@ -64,6 +76,8 @@ class VessQC(QWidget):
         self.layout().addWidget(label2)
         self.layout().addWidget(label3)
         self.layout().addWidget(btnUncertainty)
+        self.layout().addWidget(btnSave)
+        self.layout().addWidget(btnReload)
 
         # Close the uncertanty_list when Napari is closed
         def wrapper(self, func, event):
@@ -78,9 +92,10 @@ class VessQC(QWidget):
 
     def btn_load(self):
         # Find the data file
+        # (23.05.2024)
         filename = QFileDialog.getOpenFileName(self, 'Input file', filter='*.nii')
         image_file = Path(filename[0])
-        parent = image_file.parent        # The data directory
+        self.parent = image_file.parent        # The data directory
 
         # Load the data file
         image_data = sitk.ReadImage(image_file)
@@ -88,14 +103,20 @@ class VessQC(QWidget):
         # self.show_info(self.image)
 
         # Load the uncertainty file and calculate data and counts
-        uncertainty_file = parent / 'Uncertainty.nii'
+        uncertainty_file = self.parent / 'Uncertainty.nii'
         uncertainty_data = sitk.ReadImage(uncertainty_file)
         self.uncertainty = sitk.GetArrayFromImage(uncertainty_data)
-        self.uncert_values, self.counts = np.unique(self.uncertainty, \
+        self.uncert_values, counts = np.unique(self.uncertainty, \
             return_counts=True)
 
+        n = len(self.uncert_values)
+        for i in range(1, n):
+            area_i = {'name': 'Area %d' % (i), 'value': self.uncert_values[i],
+                'counts': counts[i], 'centroid': (0, 0, 0), 'done': False}
+            self.areas.append(area_i)
+
         # Load the prediction file
-        prediction_file = parent / 'Prediction.nii'
+        prediction_file = self.parent / 'Prediction.nii'
         prediction_data = sitk.ReadImage(prediction_file)
         self.prediction = sitk.GetArrayFromImage(prediction_data)
 
@@ -111,11 +132,11 @@ class VessQC(QWidget):
         # self.viewer.dims.ndisplay = 3     # 3D view
 
         # List for the label layers.
-        n = len(self.uncert_values)
         self.layer_list = [ None for i in range(n) ]
 
     def btn_segmentation(self):
         # Show prediction in Napari
+        # (23.05.2024)
         self.viewer.add_labels(self.prediction, name='Prediction')
 
         # Save uncertainty layer, but don't show it
@@ -125,79 +146,177 @@ class VessQC(QWidget):
 
     def btn_uncertainty(self):
         # Define a pop-up window for the uncertainty list
+        # (24.05.2024)
         self.popup_window = QWidget()
         self.popup_window.setWindowTitle('napari')
-        self.popup_window.setMinimumSize(QSize(300, 300))
+        self.popup_window.setMinimumSize(QSize(350, 300))
+        popup_window_layout = QVBoxLayout()
+        self.popup_window.setLayout(popup_window_layout)
 
         # define a scroll area inside the pop-up window
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
+        popup_window_layout.addWidget(scroll_area)
 
         # Define a group box inside the scroll area
         group_box = QGroupBox('Uncertainty List')
+        group_box_layout = QGridLayout()
+        group_box.setLayout(group_box_layout)
         scroll_area.setWidget(group_box)
 
         # add widgets to the group box
-        self.group_box_layout = QGridLayout()
-        self.group_box_layout.addWidget(QLabel('Area'), 0, 0)
-        self.group_box_layout.addWidget(QLabel('Uncertainty'), 0, 1)
-        self.group_box_layout.addWidget(QLabel('Counts'), 0, 2)
+        i = 0
+        group_box_layout.addWidget(QLabel('Area'), i, 0)
+        group_box_layout.addWidget(QLabel('Uncertainty'), i, 1)
+        group_box_layout.addWidget(QLabel('Counts'), i, 2)
+        group_box_layout.addWidget(QLabel('done'), i, 3)
+        i += 1
 
-        # Define buttons and select uncertainty values for the labels
-        n = len(self.uncert_values)
-        for i in range(1, n):
-            text1 = 'Area ' + str(i)
-            button = QPushButton(text1)
-            button.clicked.connect(self.button_clicked)
-            value = self.uncert_values[i]
-            label1 = QLabel(str(value))
-            value = self.counts[i]
-            label2 = QLabel(str(value))
+        # Define buttons and select values for some labels
+        for area_i in self.areas:
+            if area_i['done']:      # show only the untreated areas
+                continue
 
-            self.group_box_layout.addWidget(button, i, 0)
-            self.group_box_layout.addWidget(label1, i, 1)
-            self.group_box_layout.addWidget(label2, i, 2)
+            string0 = area_i['name']
+            button1 = QPushButton(string0)
+            button1.clicked.connect(self.btn_clicked)
+            string1 = '%.5f' % (area_i['value'])
+            label1 = QLabel(string1)
+            string1 = '%d' % (area_i['counts'])
+            label2 = QLabel(string1)
+            button2 = QPushButton('done', objectName=string0)
+            button2.clicked.connect(self.btn_done)
 
-        group_box.setLayout(self.group_box_layout)
+            group_box_layout.addWidget(button1, i, 0)
+            group_box_layout.addWidget(label1, i, 1)
+            group_box_layout.addWidget(label2, i, 2)
+            group_box_layout.addWidget(button2, i, 3)
+            i += 1
 
-        popup_window_layout = QVBoxLayout()
-        popup_window_layout.addWidget(scroll_area)
-        self.popup_window.setLayout(popup_window_layout)
+        # show a horizontal line
+        line = QWidget()
+        line.setFixedHeight(3)
+        line.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        line.setStyleSheet('background-color: mediumblue')
+        group_box_layout.addWidget(line, i, 0, 1, -1)
+        i += 1
+
+        # The treated areas are shown in the lower part of the group box
+        group_box_layout.addWidget(QLabel('Area'), i, 0)
+        group_box_layout.addWidget(QLabel('Uncertainty'), i, 1)
+        group_box_layout.addWidget(QLabel('Counts'), i, 2)
+        group_box_layout.addWidget(QLabel('restore'), i, 3)
+        i += 1
+
+        for area_i in self.areas:
+            if not area_i['done']:      # show only the treated areas
+                continue
+
+            string0 = area_i['name']
+            button1 = QPushButton(string0)
+            button1.clicked.connect(self.btn_clicked)
+            string1 = '%.5f' % (area_i['value'])
+            label1 = QLabel(string1)
+            string1 = '%d' % (area_i['counts'])
+            label2 = QLabel(string1)
+            button2 = QPushButton('restore', objectName=string0)
+            button2.clicked.connect(self.btn_restore)
+
+            group_box_layout.addWidget(button1, i, 0)
+            group_box_layout.addWidget(label1, i, 1)
+            group_box_layout.addWidget(label2, i, 2)
+            group_box_layout.addWidget(button2, i, 3)
+            i += 1
 
         # Show the pop-up window
         self.popup_window.show()
         
-    def button_clicked(self):
+    def btn_clicked(self):
+        # (29.05.2024)
         text1 = self.sender().text()        # name of the button: "Area nn"
         index = int(text1[5:])              # number of the area
-        value = self.uncert_values[index]   # uncertainty value of the area
+        area_i = self.areas[index-1]        # selected area
+        value = area_i['value']             # uncertainty value of the area
 
         if self.layer_list[index-1] == None:
             # Show the data of a specific uncertanty
             indices = np.where(self.uncertainty == value)   # find all data points
-            area = np.zeros(self.uncertainty.shape, dtype=np.int8)
-            area[indices] = index + 1          # build a new label layer
-            layer = self.viewer.add_labels(area, name=text1)
+            data = np.zeros(self.uncertainty.shape, dtype=np.int8)
+            data[indices] = index + 1          # build a new label layer
+            layer = self.viewer.add_labels(data, name=text1)
 
             # Find the center of the data points
-            centroid = ndimage.center_of_mass(area)
+            centroid = ndimage.center_of_mass(data)
             centroid = (int(centroid[0]), int(centroid[1]), int(centroid[2]))
+            area_i['centroid'] = centroid
 
-            # safe the centroid and the label layer
-            self.layer_list[index-1] = [centroid, layer]
-            
-            # Change to the matching color
-            layer.selected_label = index + 1
+            # safe the label layer in a list
+            self.layer_list[index-1] = layer
         else:
-            centroid, layer = self.layer_list[index-1]
-            # Change to the desired layer and matching color
+            # Change to the desired layer
+            centroid = area_i['centroid']
+            layer = self.layer_list[index-1]
             self.viewer.layers.selection.active = layer
-            layer.selected_label = index + 1
             
         # Set the appropriate level and focus
         self.viewer.dims.current_step = centroid
         self.viewer.camera.center = centroid
+
+        # Change to the matching color
+        layer.selected_label = index + 1
+
         print('Centroid:', centroid)
+
+    def btn_done(self):
+        # (18.07.2024)
+        text1 = self.sender().objectName()      # name of the object
+        index = int(text1[5:])                  # number of the area
+        area_i = self.areas[index-1]            # selected area
+        area_i['done'] = True                   # mark this area as treated
+        self.btn_uncertainty()                  # open a new pop-up window
+
+    def btn_restore(self):
+        # (19.07.2024)
+        text1 = self.sender().objectName()
+        index = int(text1[5:])
+        area_i = self.areas[index-1]
+        area_i['done'] = False
+        self.btn_uncertainty()
+
+    def btn_save(self):
+        # (10.07.2024)
+        print('Save the areas to disk')
+        start = time.process_time()
+
+        # Build a dictionary with the coordinates of the areas
+        dict1 = {}
+        for i, value in enumerate(self.uncert_values[1:]):
+            indices = np.where(self.uncertainty == value)
+            indices2 = (indices[0].tolist(), indices[1].tolist(), \
+                indices[2].tolist())
+            key = 'Area ' + str(i+1)
+            dict1[key] = indices2
+
+        # Save the dictionary in JSON format
+        filename = self.parent / 'areas.json'
+        with open(filename, 'w') as file:
+            json.dump(dict1, file)
+
+        end = time.process_time()
+        print('runtime:', end - start, 'sec.')
+
+    def btn_reload(self):
+        # (10.07.2024)
+        print('Reload the areas')
+
+        filename = self.parent / 'areas.json'
+        with open(filename, 'r') as file:
+            dict1 = json.load(file)
+
+        for key in dict1:
+            indices = dict1[key]
+            indices2 = tuple(indices)
+            dict1[key] = indices2
 
     def show_info(self, image):
         print('type',  type(image))
@@ -214,6 +333,7 @@ class VessQC(QWidget):
         print('std', np.std(image))
 
     def on_close(self):
+        # (29.05.2024)
         print("Good by!")
         if hasattr(self, 'popup_window'):
             self.popup_window.close()
