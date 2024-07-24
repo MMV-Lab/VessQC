@@ -63,10 +63,10 @@ class VessQC(QWidget):
         btnUncertainty = QPushButton('Load uncertainty list')
         btnUncertainty.clicked.connect(self.btn_uncertainty)
 
-        btnSave = QPushButton('Save the list')
+        btnSave = QPushButton('Save the areas to disk')
         btnSave.clicked.connect(self.btn_save)
 
-        btnReload = QPushButton('Reload the lists')
+        btnReload = QPushButton('Reload the areas')
         btnReload.clicked.connect(self.btn_reload)
 
         self.setLayout(QVBoxLayout())
@@ -106,12 +106,12 @@ class VessQC(QWidget):
         uncertainty_file = self.parent / 'Uncertainty.nii'
         uncertainty_data = sitk.ReadImage(uncertainty_file)
         self.uncertainty = sitk.GetArrayFromImage(uncertainty_data)
-        self.uncert_values, counts = np.unique(self.uncertainty, \
+        self.unc_values, counts = np.unique(self.uncertainty, \
             return_counts=True)
 
-        n = len(self.uncert_values)
+        n = len(self.unc_values)
         for i in range(1, n):
-            area_i = {'name': 'Area %d' % (i), 'value': self.uncert_values[i],
+            area_i = {'name': 'Area %d' % (i), 'unc_value': self.unc_values[i],
                 'counts': counts[i], 'centroid': (0, 0, 0), 'done': False}
             self.areas.append(area_i)
 
@@ -179,8 +179,8 @@ class VessQC(QWidget):
 
             string0 = area_i['name']
             button1 = QPushButton(string0)
-            button1.clicked.connect(self.btn_clicked)
-            string1 = '%.5f' % (area_i['value'])
+            button1.clicked.connect(self.btn_show_area)
+            string1 = '%.5f' % (area_i['unc_value'])
             label1 = QLabel(string1)
             string1 = '%d' % (area_i['counts'])
             label2 = QLabel(string1)
@@ -214,8 +214,8 @@ class VessQC(QWidget):
 
             string0 = area_i['name']
             button1 = QPushButton(string0)
-            button1.clicked.connect(self.btn_clicked)
-            string1 = '%.5f' % (area_i['value'])
+            button1.clicked.connect(self.btn_show_area)
+            string1 = '%.5f' % (area_i['unc_value'])
             label1 = QLabel(string1)
             string1 = '%d' % (area_i['counts'])
             label2 = QLabel(string1)
@@ -231,16 +231,17 @@ class VessQC(QWidget):
         # Show the pop-up window
         self.popup_window.show()
         
-    def btn_clicked(self):
+    def btn_show_area(self):
         # (29.05.2024)
         text1 = self.sender().text()        # name of the button: "Area nn"
         index = int(text1[5:])              # number of the area
         area_i = self.areas[index-1]        # selected area
-        value = area_i['value']             # uncertainty value of the area
+        unc_value = area_i['unc_value']     # uncertainty value of the area
 
         if self.layer_list[index-1] == None:
             # Show the data of a specific uncertanty
-            indices = np.where(self.uncertainty == value)   # find all data points
+            # find all data points
+            indices = np.where(self.uncertainty == unc_value)
             data = np.zeros(self.uncertainty.shape, dtype=np.int8)
             data[indices] = index + 1          # build a new label layer
             layer = self.viewer.add_labels(data, name=text1)
@@ -284,39 +285,36 @@ class VessQC(QWidget):
         self.btn_uncertainty()
 
     def btn_save(self):
-        # (10.07.2024)
+        # (24.07.2024)
         print('Save the areas to disk')
         start = time.process_time()
 
         # Build a dictionary with the coordinates of the areas
         dict1 = {}
-        for i, value in enumerate(self.uncert_values[1:]):
-            indices = np.where(self.uncertainty == value)
-            indices2 = (indices[0].tolist(), indices[1].tolist(), \
-                indices[2].tolist())
-            key = 'Area ' + str(i+1)
-            dict1[key] = indices2
+        for i, unc_value in enumerate(self.unc_values[1:]):
+            indices = np.where(self.uncertainty == unc_value)
+            key = 'Area %d' % (i + 1)
+            dict1[key] = indices
 
-        # Save the dictionary in JSON format
-        filename = self.parent / 'areas.json'
-        with open(filename, 'w') as file:
-            json.dump(dict1, file)
+        split_time = time.process_time()
+
+        # Save the dictionary in npz-format
+        filename = self.parent / 'areas.npz'
+        with open(filename, 'wb') as file:
+            np.savez(file, **dict1)
 
         end = time.process_time()
-        print('runtime:', end - start, 'sec.')
+        print('split time: %f s' % (split_time - start))
+        print('runtime: %f s' % (end - start))
 
     def btn_reload(self):
-        # (10.07.2024)
-        print('Reload the areas')
+        # (24.07.2024)
+        print('Reload the areas from disk')
 
-        filename = self.parent / 'areas.json'
-        with open(filename, 'r') as file:
-            dict1 = json.load(file)
-
-        for key in dict1:
-            indices = dict1[key]
-            indices2 = tuple(indices)
-            dict1[key] = indices2
+        filename = self.parent / 'areas.npz'
+        with np.load(filename) as npzfile:
+            print(npzfile.files)
+            dict1 = {key: tuple(npzfile[key]) for key in npzfile}
 
     def show_info(self, image):
         print('type',  type(image))
