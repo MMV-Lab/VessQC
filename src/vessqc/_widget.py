@@ -40,7 +40,7 @@ class VessQC(QWidget):
         super().__init__()
         self.viewer = viewer
         self.parent = tempfile.gettempdir()     # Directory for temporari files
-        self.areas = []                         # List of dictionaries
+        self.areas = [None]                     # List of dictionaries
 
         # Define some labels and buttons
         label1 = QLabel('Vessel quality check')
@@ -106,12 +106,12 @@ class VessQC(QWidget):
         uncertainty_file = self.parent / 'Uncertainty.nii'
         uncertainty_data = sitk.ReadImage(uncertainty_file)
         self.uncertainty = sitk.GetArrayFromImage(uncertainty_data)
-        self.unc_values, counts = np.unique(self.uncertainty, \
+        unc_values, counts = np.unique(self.uncertainty, \
             return_counts=True)
 
-        n = len(self.unc_values)
+        n = len(unc_values)
         for i in range(1, n):
-            area_i = {'name': 'Area %d' % (i), 'unc_value': self.unc_values[i],
+            area_i = {'name': 'Area %d' % (i), 'unc_value': unc_values[i],
                 'counts': counts[i], 'centroid': (0, 0, 0), 'done': False}
             self.areas.append(area_i)
 
@@ -173,18 +173,18 @@ class VessQC(QWidget):
         i += 1
 
         # Define buttons and select values for some labels
-        for area_i in self.areas:
+        for area_i in self.areas[1:]:
             if area_i['done']:      # show only the untreated areas
                 continue
 
-            string0 = area_i['name']
-            button1 = QPushButton(string0)
+            name = area_i['name']
+            button1 = QPushButton(name)
             button1.clicked.connect(self.btn_show_area)
-            string1 = '%.5f' % (area_i['unc_value'])
-            label1 = QLabel(string1)
-            string1 = '%d' % (area_i['counts'])
-            label2 = QLabel(string1)
-            button2 = QPushButton('done', objectName=string0)
+            unc_value = '%.5f' % (area_i['unc_value'])
+            label1 = QLabel(unc_value)
+            counts = '%d' % (area_i['counts'])
+            label2 = QLabel(counts)
+            button2 = QPushButton('done', objectName=name)
             button2.clicked.connect(self.btn_done)
 
             group_box_layout.addWidget(button1, i, 0)
@@ -208,18 +208,18 @@ class VessQC(QWidget):
         group_box_layout.addWidget(QLabel('restore'), i, 3)
         i += 1
 
-        for area_i in self.areas:
+        for area_i in self.areas[1:]:
             if not area_i['done']:      # show only the treated areas
                 continue
 
-            string0 = area_i['name']
-            button1 = QPushButton(string0)
+            name = area_i['name']
+            button1 = QPushButton(name)
             button1.clicked.connect(self.btn_show_area)
-            string1 = '%.5f' % (area_i['unc_value'])
-            label1 = QLabel(string1)
-            string1 = '%d' % (area_i['counts'])
-            label2 = QLabel(string1)
-            button2 = QPushButton('restore', objectName=string0)
+            unc_value = '%.5f' % (area_i['unc_value'])
+            label1 = QLabel(unc_value)
+            counts = '%d' % (area_i['counts'])
+            label2 = QLabel(counts)
+            button2 = QPushButton('restore', objectName=name)
             button2.clicked.connect(self.btn_restore)
 
             group_box_layout.addWidget(button1, i, 0)
@@ -233,9 +233,9 @@ class VessQC(QWidget):
         
     def btn_show_area(self):
         # (29.05.2024)
-        text1 = self.sender().text()        # name of the button: "Area nn"
-        index = int(text1[5:])              # number of the area
-        area_i = self.areas[index-1]        # selected area
+        text1 = self.sender().text()        # name of the button: "Area n"
+        index = int(text1[5:])              # n = number of the area
+        area_i = self.areas[index]          # selected area
         unc_value = area_i['unc_value']     # uncertainty value of the area
 
         if self.layer_list[index-1] == None:
@@ -272,7 +272,7 @@ class VessQC(QWidget):
         # (18.07.2024)
         text1 = self.sender().objectName()      # name of the object
         index = int(text1[5:])                  # number of the area
-        area_i = self.areas[index-1]            # selected area
+        area_i = self.areas[index]              # selected area
         area_i['done'] = True                   # mark this area as treated
         self.btn_uncertainty()                  # open a new pop-up window
 
@@ -280,7 +280,7 @@ class VessQC(QWidget):
         # (19.07.2024)
         text1 = self.sender().objectName()
         index = int(text1[5:])
-        area_i = self.areas[index-1]
+        area_i = self.areas[index]
         area_i['done'] = False
         self.btn_uncertainty()
 
@@ -291,7 +291,8 @@ class VessQC(QWidget):
 
         # Build a dictionary with the coordinates of the areas
         dict1 = {}
-        for i, unc_value in enumerate(self.unc_values[1:]):
+        for i, area_i in enumerate(self.areas[1:]):
+            unc_value = area_i['unc_value']
             indices = np.where(self.uncertainty == unc_value)
             key = 'Area %d' % (i + 1)
             dict1[key] = indices
