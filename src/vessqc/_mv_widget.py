@@ -131,7 +131,6 @@ class own_partial:
             **deepcopy(self.kwargs, memodict),
         )
 
-
 class QtViewerWrap(QtViewer):
     def __init__(self, main_viewer, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -203,6 +202,7 @@ class CrossWidget(QCheckBox):
             self.viewer.layers.remove(self.layer)
         self.layer = Vectors(name=".cross", ndim=event.value)
         self.layer.edge_width = 3
+        self.layer.vector_style = "line"
         self.update_cross()
 
     def _update_cross_visibility(self, state):
