@@ -5,7 +5,7 @@ Reference:
 from typing import TYPE_CHECKING
 
 import numpy as np
-import json
+import napari
 import SimpleITK as sitk
 import tempfile
 import time
@@ -54,6 +54,10 @@ class VessQC(QWidget):
         btnSegmentation = QPushButton('Segmentation')
         btnSegmentation.clicked.connect(self.btn_segmentation)
 
+        # Test output
+        btnInfo = QPushButton('Info')
+        btnInfo.clicked.connect(self.btn_info)
+
         label2 = QLabel('_______________')
         label2.setAlignment(Qt.AlignHCenter)
 
@@ -73,6 +77,7 @@ class VessQC(QWidget):
         self.layout().addWidget(label1)
         self.layout().addWidget(btnLoad)
         self.layout().addWidget(btnSegmentation)
+        self.layout().addWidget(btnInfo)
         self.layout().addWidget(label2)
         self.layout().addWidget(label3)
         self.layout().addWidget(btnUncertainty)
@@ -100,7 +105,6 @@ class VessQC(QWidget):
         # Load the data file
         image_data = sitk.ReadImage(image_file)
         self.image = sitk.GetArrayFromImage(image_data)
-        # self.show_info(self.image)
 
         # Load the uncertainty file and calculate data and counts
         uncertainty_file = self.parent / 'Uncertainty.nii'
@@ -131,8 +135,7 @@ class VessQC(QWidget):
         self.viewer.add_image(self.image, name='Input_Vol')
         # self.viewer.dims.ndisplay = 3     # 3D view
 
-        # List for the label layers.
-        self.layer_list = [ None for i in range(n) ]
+        self.layer_list = [None for i in range(n+1)]    # List for the label layers.
 
     def btn_segmentation(self):
         # Show prediction in Napari
@@ -233,30 +236,29 @@ class VessQC(QWidget):
         
     def btn_show_area(self):
         # (29.05.2024)
-        text1 = self.sender().text()        # name of the button: "Area n"
-        index = int(text1[5:])              # n = number of the area
+        name1 = self.sender().text()        # text of the button: "Area n"
+        index = int(name1[5:])              # n = number of the area
         area_i = self.areas[index]          # selected area
         unc_value = area_i['unc_value']     # uncertainty value of the area
 
-        if self.layer_list[index-1] == None:
-            # Show the data of a specific uncertanty
+        # Show the data of a specific uncertanty
+        if self.layer_list[index] == None:
             # find all data points
             indices = np.where(self.uncertainty == unc_value)
             data = np.zeros(self.uncertainty.shape, dtype=np.int8)
             data[indices] = index + 1          # build a new label layer
-            layer = self.viewer.add_labels(data, name=text1)
+            layer = self.viewer.add_labels(data, name=name1)
 
             # Find the center of the data points
             centroid = ndimage.center_of_mass(data)
             centroid = (int(centroid[0]), int(centroid[1]), int(centroid[2]))
             area_i['centroid'] = centroid
 
-            # safe the label layer in a list
-            self.layer_list[index-1] = layer
+            self.layer_list[index] = layer  # safe the label layer in a list
         else:
             # Change to the desired layer
             centroid = area_i['centroid']
-            layer = self.layer_list[index-1]
+            layer = self.layer_list[index]
             self.viewer.layers.selection.active = layer
             
         # Set the appropriate level and focus
@@ -270,66 +272,113 @@ class VessQC(QWidget):
 
     def btn_done(self):
         # (18.07.2024)
-        text1 = self.sender().objectName()      # name of the object
-        index = int(text1[5:])                  # number of the area
+        name = self.sender().objectName()       # name of the object
+        index = int(name[5:])                   # number of the area
         area_i = self.areas[index]              # selected area
         area_i['done'] = True                   # mark this area as treated
         self.btn_uncertainty()                  # open a new pop-up window
 
+        # If a label layer with this name exists:
+        if any(layer.name == name and isinstance(layer, napari.layers.Labels) \
+            for layer in self.viewer.layers):
+            # search for the changed data points
+            layer = self.viewer.layers[name]
+            new_data = layer.data
+            unc_value = area_i['unc_value']
+            indices = np.where(self.uncertainty == unc_value)
+            old_data = np.zeros(self.uncertainty.shape, dtype=np.int8)
+            old_data[indices] = index + 1
+            delta = new_data - old_data
+
+            values, counts = np.unique(delta, return_counts=True)
+            print('values', values)
+            print('counts', counts)
+
+            ind_plus = np.where(delta > 1)          # new data points
+            ind_minus = np.where(delta < -1)        # deleted data points
+
+            # transfer the changes to the prediction layer
+            self.prediction[ind_plus] = 1
+            self.prediction[ind_minus] = 0
+            layer = self.viewer.layers['Prediction']
+            layer.data = self.prediction
+
     def btn_restore(self):
         # (19.07.2024)
-        text1 = self.sender().objectName()
-        index = int(text1[5:])
+        name = self.sender().objectName()
+        index = int(name[5:])
         area_i = self.areas[index]
         area_i['done'] = False
         self.btn_uncertainty()
 
     def btn_save(self):
-        # (24.07.2024)
-        print('Save the areas to disk')
-        start = time.process_time()
+        # (26.07.2024)
+        print('Save the data to disk')
 
-        # Build a dictionary with the coordinates of the areas
-        dict1 = {}
-        for i, area_i in enumerate(self.areas[1:]):
-            unc_value = area_i['unc_value']
-            indices = np.where(self.uncertainty == unc_value)
-            key = 'Area %d' % (i + 1)
-            dict1[key] = indices
+        # 1st save the prediction data
+        layer = self.viewer.layers['Prediction']
+        data = layer.data
 
-        split_time = time.process_time()
+        try:
+            filename = self.parent / '_Prediction.npz'
+            file = open(filename, 'wb')
+            np.save(file, data)
+        except BaseException as error:
+            print('Error', error)
+        finally:
+            if 'file' in locals() and file:
+                file.close()
 
-        # Save the dictionary in npz-format
-        filename = self.parent / 'areas.npz'
-        with open(filename, 'wb') as file:
-            np.savez(file, **dict1)
+        #2nd, save the uncertainty data
+        layer = self.viewer.layers['Uncertainty']
+        data = layer.data
 
-        end = time.process_time()
-        print('split time: %f s' % (split_time - start))
-        print('runtime: %f s' % (end - start))
+        try:
+            filename = self.parent / '_Uncertainty.npz'
+            file = open(filename, 'wb')
+            np.save(file, data)
+        except BaseException as error:
+            print('Error', error)
+        finally:
+            if 'file' in locals() and file:
+                file.close()
 
     def btn_reload(self):
         # (24.07.2024)
-        print('Reload the areas from disk')
+        print('Not yet implemented!')
 
-        filename = self.parent / 'areas.npz'
-        with np.load(filename) as npzfile:
-            print(npzfile.files)
-            dict1 = {key: tuple(npzfile[key]) for key in npzfile}
+    def btn_info(self):
+        # layer = self.viewer.layers['Area 5']
+        layer = self.viewer.layers.selection.active
+        print('layer', layer.name)
 
-    def show_info(self, image):
-        print('type',  type(image))
-        print('dtype', image.dtype)
-        print('size',  image.size)
-        print('ndim',  image.ndim)
-        print('shape', image.shape)
-        print('---')
+        if isinstance(layer, napari.layers.Image):
+            image = layer.data
 
-        print('min', np.min(image))
-        print('median', np.median(image))
-        print('max', np.max(image))
-        print('mean', np.mean(image))
-        print('std', np.std(image))
+            print('type',  type(image))
+            print('dtype', image.dtype)
+            print('size',  image.size)
+            print('ndim',  image.ndim)
+            print('shape', image.shape)
+            print('---')
+
+            print('min', np.min(image))
+            print('max', np.max(image))
+            print('median', np.median(image))
+            print('mean %.3f' % (np.mean(image)))
+            print('std %.3f' %  (np.std(image)))
+        elif isinstance(layer, napari.layers.Labels):
+            data = layer.data
+            values, counts = np.unique(data, return_counts=True)
+
+            print('type', type(data))
+            print('dtype', data.dtype)
+            print('shape', data.shape)
+            print('values', values)
+            print('counts', counts)
+        else:
+            print('This is not an image or label layer!')
+        print()
 
     def on_close(self):
         # (29.05.2024)
