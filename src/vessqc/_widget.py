@@ -1,13 +1,15 @@
 """
-Reference:
-- Widget specification: https://napari.org/stable/plugins/guides.html?#widgets
+tbd.
 """
+
+# Copyright © Peter Lampen, ISAS Dortmund, 2024
+# (03.05.2024)
+
 from typing import TYPE_CHECKING
 
 import numpy as np
 import napari
 import SimpleITK as sitk
-import tempfile
 import time
 import warnings
 from scipy import ndimage
@@ -39,8 +41,6 @@ class VessQC(QWidget):
     def __init__(self, viewer: "napari.viewer.Viewer"):
         super().__init__()
         self.viewer = viewer
-        self.parent = tempfile.gettempdir()     # Directory for temporari files
-        self.areas = [None]                     # List of dictionaries
 
         # Define some labels and buttons
         label1 = QLabel('Vessel quality check')
@@ -67,12 +67,19 @@ class VessQC(QWidget):
         btnUncertainty = QPushButton('Load uncertainty list')
         btnUncertainty.clicked.connect(self.btn_uncertainty)
 
-        btnSave = QPushButton('Save the areas to disk')
+        btnSave = QPushButton('Save intermediate curation')
         btnSave.clicked.connect(self.btn_save)
 
-        btnReload = QPushButton('Reload the areas')
+        btnReload = QPushButton('Load saved curation')
         btnReload.clicked.connect(self.btn_reload)
 
+        label4 = QLabel('_______________')
+        label4.setAlignment(Qt.AlignHCenter)
+
+        btnFinalSeg = QPushButton('Generate final segmentation')
+        btnFinalSeg.clicked.connect(self.btn_final_seg)
+
+        # Define the layout of the main widget
         self.setLayout(QVBoxLayout())
         self.layout().addWidget(label1)
         self.layout().addWidget(btnLoad)
@@ -83,6 +90,8 @@ class VessQC(QWidget):
         self.layout().addWidget(btnUncertainty)
         self.layout().addWidget(btnSave)
         self.layout().addWidget(btnReload)
+        self.layout().addWidget(label4)
+        self.layout().addWidget(btnFinalSeg)
 
         # Close the uncertanty_list when Napari is closed
         def wrapper(self, func, event):
@@ -96,56 +105,64 @@ class VessQC(QWidget):
                 lambda event: wrapper(self, func, event)
 
     def btn_load(self):
-        # Find the data file
         # (23.05.2024)
-        filename = QFileDialog.getOpenFileName(self, 'Input file', filter='*.nii')
-        image_file = Path(filename[0])
-        self.parent = image_file.parent        # The data directory
+        # Find and load the data file
+        try:
+            filename = QFileDialog.getOpenFileName(self, 'Input file', \
+                filter='*.nii')
+            image_file = Path(filename[0])
+            self.parent = image_file.parent        # The data directory
+            image_data = sitk.ReadImage(image_file)
+            self.image = sitk.GetArrayFromImage(image_data)
+        except BaseException as error:
+            print('Error:', error)
 
-        # Load the data file
-        image_data = sitk.ReadImage(image_file)
-        self.image = sitk.GetArrayFromImage(image_data)
-
-        # Load the uncertainty file and calculate data and counts
-        uncertainty_file = self.parent / 'Uncertainty.nii'
-        uncertainty_data = sitk.ReadImage(uncertainty_file)
-        self.uncertainty = sitk.GetArrayFromImage(uncertainty_data)
-        unc_values, counts = np.unique(self.uncertainty, \
-            return_counts=True)
-
-        n = len(unc_values)
-        for i in range(1, n):
-            area_i = {'name': 'Area %d' % (i), 'unc_value': unc_values[i],
-                'counts': counts[i], 'centroid': (0, 0, 0), 'done': False}
-            self.areas.append(area_i)
-
-        # Load the prediction file
-        prediction_file = self.parent / 'Prediction.nii'
-        prediction_data = sitk.ReadImage(prediction_file)
-        self.prediction = sitk.GetArrayFromImage(prediction_data)
-
-        # Call the Multiple Viewer and the Cross widget
+        # Call the multiple viewer and the cross widget
         dock_widget = MultipleViewerWidget(self.viewer)
-        cross = CrossWidget(self.viewer)
+        cross_widget = CrossWidget(self.viewer)
 
         self.viewer.window.add_dock_widget(dock_widget, name="Sample")
-        self.viewer.window.add_dock_widget(cross, name="Cross", area="left")
+        self.viewer.window.add_dock_widget(cross_widget, name="Cross", \
+            area="left")
 
         # Show the image in Napari
         self.viewer.add_image(self.image, name='Input_Vol')
         # self.viewer.dims.ndisplay = 3     # 3D view
 
-        self.layer_list = [None for i in range(n+1)]    # List for the label layers.
-
     def btn_segmentation(self):
-        # Show prediction in Napari
         # (23.05.2024)
+        # Load the prediction file
+        try:
+            prediction_file = self.parent / 'Prediction.nii'
+            prediction_data = sitk.ReadImage(prediction_file)
+            self.prediction = sitk.GetArrayFromImage(prediction_data)
+        except BaseException as error:
+            print('Error:', error)
+
+        # Show prediction in a label layer
         self.viewer.add_labels(self.prediction, name='Prediction')
 
-        # Save uncertainty layer, but don't show it
-        uncertainty_layer = self.viewer.add_image(self.uncertainty, \
-            name='Uncertainty', blending='additive')
-        uncertainty_layer.visible = False
+        # Load the uncertainty file and calculate data and counts
+        try:
+            uncertainty_file = self.parent / 'Uncertainty.nii'
+            uncertainty_data = sitk.ReadImage(uncertainty_file)
+            self.uncertainty = sitk.GetArrayFromImage(uncertainty_data)
+        except BaseException as error:
+            print('Error', error)
+
+        # Save uncertainty layer, but hide it
+        self.viewer.add_image(self.uncertainty, name='Uncertainty', \
+            blending='additive', visible=False)
+
+        # Define areas that correspond to values of equal uncertainty
+        unc_values, counts = np.unique(self.uncertainty, return_counts=True)
+        n = len(unc_values)
+        self.areas = [None]                     # List of dictionaries
+
+        for i in range(1, n):
+            area_i = {'name': 'Area %d' % (i), 'unc_value': unc_values[i],
+                'counts': counts[i], 'where': None, 'done': False}
+            self.areas.append(area_i)
 
     def btn_uncertainty(self):
         # Define a pop-up window for the uncertainty list
@@ -241,26 +258,18 @@ class VessQC(QWidget):
         area_i = self.areas[index]          # selected area
         unc_value = area_i['unc_value']     # uncertainty value of the area
 
-        # Show the data of a specific uncertanty
-        if self.layer_list[index] == None:
-            # find all data points
-            indices = np.where(self.uncertainty == unc_value)
-            data = np.zeros(self.uncertainty.shape, dtype=np.int8)
-            data[indices] = index + 1          # build a new label layer
-            layer = self.viewer.add_labels(data, name=name1)
+        # Show the data for a specific uncertanty;
+        where1 = np.where(self.uncertainty == unc_value)
+        area_i['where'] = where1            # save np.where() for later use
+        data = np.zeros(self.uncertainty.shape, dtype=np.int8)
+        data[where1] = index + 1            # build a new label layer
+        layer = self.viewer.add_labels(data, name=name1)
 
-            # Find the center of the data points
-            centroid = ndimage.center_of_mass(data)
-            centroid = (int(centroid[0]), int(centroid[1]), int(centroid[2]))
-            area_i['centroid'] = centroid
+        # Find the center of the data points
+        centroid = ndimage.center_of_mass(data)
+        centroid = (int(centroid[0]), int(centroid[1]), int(centroid[2]))
+        print('Centroid:', centroid)
 
-            self.layer_list[index] = layer  # safe the label layer in a list
-        else:
-            # Change to the desired layer
-            centroid = area_i['centroid']
-            layer = self.layer_list[index]
-            self.viewer.layers.selection.active = layer
-            
         # Set the appropriate level and focus
         self.viewer.dims.current_step = centroid
         self.viewer.camera.center = centroid
@@ -268,12 +277,10 @@ class VessQC(QWidget):
         # Change to the matching color
         layer.selected_label = index + 1
 
-        print('Centroid:', centroid)
-
     def btn_done(self):
         # (18.07.2024)
-        name = self.sender().objectName()       # name of the object
-        index = int(name[5:])                   # number of the area
+        name = self.sender().objectName()       # name of the object: 'Area n'
+        index = int(name[5:])                   # n = number of the area
         area_i = self.areas[index]              # selected area
         area_i['done'] = True                   # mark this area as treated
         self.btn_uncertainty()                  # open a new pop-up window
@@ -282,26 +289,34 @@ class VessQC(QWidget):
         if any(layer.name == name and isinstance(layer, napari.layers.Labels) \
             for layer in self.viewer.layers):
             # search for the changed data points
-            layer = self.viewer.layers[name]
-            new_data = layer.data
-            unc_value = area_i['unc_value']
-            indices = np.where(self.uncertainty == unc_value)
+            layer1 = self.viewer.layers[name]
+            print('layer:', layer1.name)
+            new_data = layer1.data
+
+            # compare new and old data
+            where1 = area_i['where']            # recall the old value
             old_data = np.zeros(self.uncertainty.shape, dtype=np.int8)
-            old_data[indices] = index + 1
+            old_data[where1] = index + 1
             delta = new_data - old_data
 
-            values, counts = np.unique(delta, return_counts=True)
-            print('values', values)
-            print('counts', counts)
-
-            ind_plus = np.where(delta > 1)          # new data points
-            ind_minus = np.where(delta < -1)        # deleted data points
+            ind_new = np.where(delta > 0)       # new data points
+            ind_del = np.where(delta < 0)       # deleted data points
 
             # transfer the changes to the prediction layer
-            self.prediction[ind_plus] = 1
-            self.prediction[ind_minus] = 0
-            layer = self.viewer.layers['Prediction']
-            layer.data = self.prediction
+            self.prediction[ind_new] = 1
+            self.prediction[ind_del] = 0
+            layer2 = self.viewer.layers['Prediction']
+            layer2.data = self.prediction
+
+            # transfer the changes to the uncertainty layer
+            unc_value = area_i['unc_value']
+            self.uncertainty[ind_new] = unc_value
+            self.uncertainty[ind_del] = 0.0
+            layer3 = self.viewer.layers['Uncertainty']
+            layer3.data = self.uncertainty
+
+            # delete the label layer 'Area n'
+            self.viewer.layers.remove(layer1)
 
     def btn_restore(self):
         # (19.07.2024)
@@ -313,18 +328,18 @@ class VessQC(QWidget):
 
     def btn_save(self):
         # (26.07.2024)
-        print('Save the data to disk')
+        print('Save the intermediate data to disk')
 
         # 1st save the prediction data
         layer = self.viewer.layers['Prediction']
         data = layer.data
 
         try:
-            filename = self.parent / '_Prediction.npz'
+            filename = self.parent / '_Prediction.npy'
             file = open(filename, 'wb')
             np.save(file, data)
         except BaseException as error:
-            print('Error', error)
+            print('Error:', error)
         finally:
             if 'file' in locals() and file:
                 file.close()
@@ -334,48 +349,102 @@ class VessQC(QWidget):
         data = layer.data
 
         try:
-            filename = self.parent / '_Uncertainty.npz'
+            filename = self.parent / '_Uncertainty.npy'
             file = open(filename, 'wb')
             np.save(file, data)
         except BaseException as error:
-            print('Error', error)
+            print('Error:', error)
         finally:
             if 'file' in locals() and file:
                 file.close()
 
     def btn_reload(self):
-        # (24.07.2024)
-        print('Not yet implemented!')
+        # (30.07.2024)
+        print('Read the intermediate data from disk')
+        
+        # 1st, read the prediction data
+        try:
+            filename = self.parent / '_Prediction.npy'
+            file = open(filename, 'rb')
+            self.prediction = np.load(file)
+        except BaseException as error:
+            print('Error:', error)
+        finally:
+            if 'file' in locals() and file:
+                file.close()
+
+        # If the 'Prediction' layer already exists'
+        if any(layer.name == 'Prediction' and isinstance(layer, \
+            napari.layers.Labels) for layer in self.viewer.layers):
+            layer = self.viewer.layers['Prediction']
+            layer.data = self.prediction
+        else:
+            self.viewer.add_labels(self.prediction, name='Prediction')
+
+        # 2st, read the uncertainty data
+        try:
+            filename = self.parent / '_Uncertainty.npy'
+            file = open(filename, 'rb')
+            self.uncertainty = np.load(file)
+        except BaseException as error:
+            print('Error:', error)
+        finally:
+            if 'file' in locals() and file:
+                file.close()
+
+        # If the 'Uncertainty' layer already exists'
+        if any(layer.name == 'Uncertainty' and isinstance(layer, \
+            napari.layers.Image) for layer in self.viewer.layers):
+            layer = self.viewer.layers['Uncertainty']
+            layer.data = self.uncertainty
+        else:
+            self.viewer.add_image(self.uncertainty, name='Uncertainty', \
+                blending='additive', visible=False)
+
+        # Define areas that correspond to values of equal uncertainty
+        unc_values, counts = np.unique(self.uncertainty, return_counts=True)
+        n = len(unc_values)
+        self.areas = [None]                     # List of dictionaries
+
+        for i in range(1, n):
+            area_i = {'name': 'Area %d' % (i), 'unc_value': unc_values[i],
+                'counts': counts[i], 'where': None, 'done': False}
+            self.areas.append(area_i)
+
+    def btn_final_seg(self):
+        # (02.08.2024)
+        print('Generate final segmentation')
 
     def btn_info(self):
+        # (25.07.2024)
         # layer = self.viewer.layers['Area 5']
         layer = self.viewer.layers.selection.active
-        print('layer', layer.name)
+        print('layer:', layer.name)
 
         if isinstance(layer, napari.layers.Image):
             image = layer.data
 
-            print('type',  type(image))
-            print('dtype', image.dtype)
-            print('size',  image.size)
-            print('ndim',  image.ndim)
-            print('shape', image.shape)
+            print('type:',  type(image))
+            print('dtype:', image.dtype)
+            print('size:',  image.size)
+            print('ndim:',  image.ndim)
+            print('shape:', image.shape)
             print('---')
 
-            print('min', np.min(image))
-            print('max', np.max(image))
-            print('median', np.median(image))
-            print('mean %.3f' % (np.mean(image)))
-            print('std %.3f' %  (np.std(image)))
+            print('min:', np.min(image))
+            print('max:', np.max(image))
+            print('median:', np.median(image))
+            print('mean: %.3f' % (np.mean(image)))
+            print('std: %.3f' %  (np.std(image)))
         elif isinstance(layer, napari.layers.Labels):
             data = layer.data
             values, counts = np.unique(data, return_counts=True)
 
-            print('type', type(data))
-            print('dtype', data.dtype)
-            print('shape', data.shape)
-            print('values', values)
-            print('counts', counts)
+            print('type:', type(data))
+            print('dtype:', data.dtype)
+            print('shape:', data.shape)
+            print('values:', values)
+            print('counts:', counts)
         else:
             print('This is not an image or label layer!')
         print()
