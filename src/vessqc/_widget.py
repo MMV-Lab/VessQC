@@ -41,6 +41,7 @@ class VessQC(QWidget):
     def __init__(self, viewer: "napari.viewer.Viewer"):
         super().__init__()
         self.viewer = viewer
+        self.start_multiple_viewer = True
 
         # Define some labels and buttons
         label1 = QLabel('Vessel quality check')
@@ -105,28 +106,38 @@ class VessQC(QWidget):
                 lambda event: wrapper(self, func, event)
 
     def btn_load(self):
-        # (23.05.2024)
-        # Find and load the data file
+        # (23.05.2024); Find and load the data file
         try:
-            filename = QFileDialog.getOpenFileName(self, 'Input file', \
-                filter='*.nii')
-            image_file = Path(filename[0])
-            self.parent = image_file.parent        # The data directory
-            image_data = sitk.ReadImage(image_file)
-            self.image = sitk.GetArrayFromImage(image_data)
+            filter = "NIfTI files (*.nii *.nii.gz);;TIFF files (*.tif *.tiff);;\
+                All files (*.*)"
+            filename = QFileDialog.getOpenFileName(self, 'Input file', '', \
+                filter)
+
+            if filename == ('', ''):                # Cancel has been pressed
+                print('The "Cancel" button has been pressed.')
+                return
+            else:
+                file_path = Path(filename[0])
+                image_data = sitk.ReadImage(file_path)
+                self.image = sitk.GetArrayFromImage(image_data)
+                name1 = file_path.stem              # Name without suffix
+                self.parent = file_path.parent      # The data directory
+                self.suffix = file_path.suffix
         except BaseException as error:
             print('Error:', error)
 
-        # Call the multiple viewer and the cross widget
-        dock_widget = MultipleViewerWidget(self.viewer)
-        cross_widget = CrossWidget(self.viewer)
+        if self.start_multiple_viewer:              # run this only once!
+            # Call the multiple viewer and the cross widget
+            dock_widget = MultipleViewerWidget(self.viewer)
+            cross_widget = CrossWidget(self.viewer)
 
-        self.viewer.window.add_dock_widget(dock_widget, name="Sample")
-        self.viewer.window.add_dock_widget(cross_widget, name="Cross", \
-            area="left")
+            self.viewer.window.add_dock_widget(dock_widget, name="Sample")
+            self.viewer.window.add_dock_widget(cross_widget, name="Cross", \
+                area="left")
+            self.start_multiple_viewer = False
 
         # Show the image in Napari
-        self.viewer.add_image(self.image, name='Input_Vol')
+        self.viewer.add_image(self.image, name=name1)
         # self.viewer.dims.ndisplay = 3     # 3D view
 
     def btn_segmentation(self):
