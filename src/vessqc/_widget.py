@@ -106,27 +106,8 @@ class VessQC(QWidget):
                 lambda event: wrapper(self, func, event)
 
     def btn_load(self):
-        # (23.05.2024); Find and load the data file
-        try:
-            filter = "NIfTI files (*.nii *.nii.gz);;TIFF files (*.tif *.tiff);;\
-                All files (*.*)"
-            filename = QFileDialog.getOpenFileName(self, 'Input file', '', \
-                filter)
-
-            if filename == ('', ''):                # Cancel has been pressed
-                print('The "Cancel" button has been pressed.')
-                return
-            else:
-                file_path = Path(filename[0])
-                image_data = sitk.ReadImage(file_path)
-                self.image = sitk.GetArrayFromImage(image_data)
-                name1 = file_path.stem              # Name without suffix
-                self.parent = file_path.parent      # The data directory
-                self.suffix = file_path.suffix
-        except BaseException as error:
-            print('Error:', error)
-
-        if self.start_multiple_viewer:              # run this only once!
+        # (23.05.2024);
+        if self.start_multiple_viewer:             # run this part only once!
             # Call the multiple viewer and the cross widget
             dock_widget = MultipleViewerWidget(self.viewer)
             cross_widget = CrossWidget(self.viewer)
@@ -136,34 +117,70 @@ class VessQC(QWidget):
                 area="left")
             self.start_multiple_viewer = False
 
-        # Show the image in Napari
-        self.viewer.add_image(self.image, name=name1)
-        # self.viewer.dims.ndisplay = 3     # 3D view
-
-    def btn_segmentation(self):
-        # (23.05.2024)
-        # Load the prediction file
+        # Find and load the data file
         try:
-            prediction_file = self.parent / 'Prediction.nii'
-            prediction_data = sitk.ReadImage(prediction_file)
-            self.prediction = sitk.GetArrayFromImage(prediction_data)
+            filter1 = "NIfTI files (*.nii *.nii.gz);;TIFF files (*.tif *.tiff);;\
+                All files (*.*)"
+            filename = QFileDialog.getOpenFileName(self, 'Input file', '', \
+                filter1)
+
+            if filename == ('', ''):                # Cancel has been pressed
+                print('The "Cancel" button has been pressed.')
+                return
+            else:
+                image_path = Path(filename[0])
+                image_data = sitk.ReadImage(image_path)
+                self.image = sitk.GetArrayFromImage(image_data)
+                name1 = image_path.stem             # Name of the file
+                self.parent = image_path.parent     # The data directory
+                self.suffix = image_path.suffix.lower()
+
+                # Show the image in Napari
+                self.viewer.add_image(self.image, name=name1)
         except BaseException as error:
             print('Error:', error)
 
-        # Show prediction in a label layer
-        self.viewer.add_labels(self.prediction, name='Prediction')
+    def btn_segmentation(self):
+        # (23.05.2024)
+        # The file type depends on the extension
+        if self.suffix == '.nii':
+            name1 = 'Prediction.nii'
+            name2 = 'Uncertainty.nii'
+        elif self.suffix == '.gz':
+            name1 = 'Prediction.nii.gz'
+            name2 = 'Uncertainty.nii.gz'
+        elif self.suffix == '.tif':
+            name1 = 'Prediction.tif'
+            name2 = 'Uncertainty.tif'
+        elif self.suffix == 'tiff':
+            name1 = 'Prediction.tiff'
+            name2 = 'Uncertainty.tiff'
+        else:
+            print('Unknown file type')
+            return
+
+        # Load the prediction file
+        try:
+            prediction_path = self.parent / name1
+            prediction_data = sitk.ReadImage(prediction_path)
+            self.prediction = sitk.GetArrayFromImage(prediction_data)
+
+            # Show prediction in a label layer
+            self.viewer.add_labels(self.prediction, name='Prediction')
+        except BaseException as error:
+            print('Error:', error)
 
         # Load the uncertainty file and calculate data and counts
         try:
-            uncertainty_file = self.parent / 'Uncertainty.nii'
-            uncertainty_data = sitk.ReadImage(uncertainty_file)
+            uncertainty_path = self.parent / name2
+            uncertainty_data = sitk.ReadImage(uncertainty_path)
             self.uncertainty = sitk.GetArrayFromImage(uncertainty_data)
+
+            # Save uncertainty layer, but hide it
+            self.viewer.add_image(self.uncertainty, name='Uncertainty', \
+                blending='additive', visible=False)
         except BaseException as error:
             print('Error', error)
-
-        # Save uncertainty layer, but hide it
-        self.viewer.add_image(self.uncertainty, name='Uncertainty', \
-            blending='additive', visible=False)
 
         # Define areas that correspond to values of equal uncertainty
         unc_values, counts = np.unique(self.uncertainty, return_counts=True)
@@ -301,7 +318,6 @@ class VessQC(QWidget):
             for layer in self.viewer.layers):
             # search for the changed data points
             layer1 = self.viewer.layers[name]
-            print('layer:', layer1.name)
             new_data = layer1.data
 
             # compare new and old data
@@ -385,7 +401,7 @@ class VessQC(QWidget):
                 file.close()
 
         # If the 'Prediction' layer already exists'
-        if any(layer.name == 'Prediction' and isinstance(layer, \
+        if any(layer.name.startswith('Prediction') and isinstance(layer, \
             napari.layers.Labels) for layer in self.viewer.layers):
             layer = self.viewer.layers['Prediction']
             layer.data = self.prediction
@@ -404,7 +420,7 @@ class VessQC(QWidget):
                 file.close()
 
         # If the 'Uncertainty' layer already exists'
-        if any(layer.name == 'Uncertainty' and isinstance(layer, \
+        if any(layer.name.startswith('Uncertainty') and isinstance(layer, \
             napari.layers.Image) for layer in self.viewer.layers):
             layer = self.viewer.layers['Uncertainty']
             layer.data = self.uncertainty
