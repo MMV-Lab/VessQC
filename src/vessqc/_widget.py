@@ -182,15 +182,7 @@ class VessQC(QWidget):
         except BaseException as error:
             print('Error', error)
 
-        # Define areas that correspond to values of equal uncertainty
-        unc_values, counts = np.unique(self.uncertainty, return_counts=True)
-        n = len(unc_values)
-        self.areas = [None]                     # List of dictionaries
-
-        for i in range(1, n):
-            area_i = {'name': 'Area %d' % (i), 'unc_value': unc_values[i],
-                'counts': counts[i], 'where': None, 'done': False}
-            self.areas.append(area_i)
+        self.build_areas()              # define areas
 
     def btn_uncertainty(self):
         # Define a pop-up window for the uncertainty list
@@ -397,15 +389,7 @@ class VessQC(QWidget):
             self.viewer.add_image(self.uncertainty, name='Uncertainty', \
                 blending='additive', visible=False)
 
-        # Define areas that correspond to values of equal uncertainty
-        unc_values, counts = np.unique(self.uncertainty, return_counts=True)
-        n = len(unc_values)
-        self.areas = [None]                     # List of dictionaries
-
-        for i in range(1, n):
-            area_i = {'name': 'Area %d' % (i), 'unc_value': unc_values[i],
-                'counts': counts[i], 'where': None, 'done': False}
-            self.areas.append(area_i)
+        self.build_areas()              # define areas
 
     def btn_final_seg(self):
         # (02.08.2024)
@@ -444,6 +428,18 @@ class VessQC(QWidget):
         else:
             print('This is not an image or label layer!')
         print()
+
+    def build_areas(self):
+        # (09.08.2024) Define areas that correspond to values of equal 
+        # uncertainty
+        unc_values, counts = np.unique(self.uncertainty, return_counts=True)
+        n = len(unc_values)
+        self.areas = [None]                     # List of dictionaries
+
+        for i in range(1, n):
+            area_i = {'name': 'Area %d' % (i), 'unc_value': unc_values[i],
+                'counts': counts[i], 'where': None, 'done': False}
+            self.areas.append(area_i)
 
     def compare_and_transfer(self, name):
         # (09.08.2024) Compare old and new data and transfer the changes to
