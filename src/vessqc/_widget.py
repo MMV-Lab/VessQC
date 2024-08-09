@@ -309,48 +309,17 @@ class VessQC(QWidget):
         # (18.07.2024)
         name = self.sender().objectName()       # name of the object: 'Area n'
         index = int(name[5:])                   # n = number of the area
-        area_i = self.areas[index]              # selected area
-        area_i['done'] = True                   # mark this area as treated
+        self.areas[index]['done'] = True        # mark this area as treated
+        self.compare_and_transfer(name)         # transfer of data
+        layer1 = self.viewer.layers[name]
+        self.viewer.layers.remove(layer1)       # delete the layer 'Area n'
         self.btn_uncertainty()                  # open a new pop-up window
-
-        # If a label layer with this name exists:
-        if any(layer.name == name and isinstance(layer, napari.layers.Labels) \
-            for layer in self.viewer.layers):
-            # search for the changed data points
-            layer1 = self.viewer.layers[name]
-            new_data = layer1.data
-
-            # compare new and old data
-            where1 = area_i['where']            # recall the old value
-            old_data = np.zeros(self.uncertainty.shape, dtype=np.int8)
-            old_data[where1] = index + 1
-            delta = new_data - old_data
-
-            ind_new = np.where(delta > 0)       # new data points
-            ind_del = np.where(delta < 0)       # deleted data points
-
-            # transfer the changes to the prediction layer
-            self.prediction[ind_new] = 1
-            self.prediction[ind_del] = 0
-            layer2 = self.viewer.layers['Prediction']
-            layer2.data = self.prediction
-
-            # transfer the changes to the uncertainty layer
-            unc_value = area_i['unc_value']
-            self.uncertainty[ind_new] = unc_value
-            self.uncertainty[ind_del] = 0.0
-            layer3 = self.viewer.layers['Uncertainty']
-            layer3.data = self.uncertainty
-
-            # delete the label layer 'Area n'
-            self.viewer.layers.remove(layer1)
 
     def btn_restore(self):
         # (19.07.2024)
         name = self.sender().objectName()
         index = int(name[5:])
-        area_i = self.areas[index]
-        area_i['done'] = False
+        self.areas[index]['done'] = False
         self.btn_uncertainty()
 
     def btn_save(self):
@@ -475,6 +444,41 @@ class VessQC(QWidget):
         else:
             print('This is not an image or label layer!')
         print()
+
+    def compare_and_transfer(self, name):
+        # (09.08.2024) Compare old and new data and transfer the changes to
+        # the prediction and uncertainty data
+        index = int(name[5:])                   # n = number of the area
+        area_i = self.areas[index]              # selected area
+
+        # If a label layer with this name exists:
+        if any(layer.name == name and isinstance(layer, napari.layers.Labels) \
+            for layer in self.viewer.layers):
+            # search for the changed data points
+            layer1 = self.viewer.layers[name]
+            new_data = layer1.data
+
+            # compare new and old data
+            where1 = area_i['where']            # recall the old values
+            old_data = np.zeros(self.uncertainty.shape, dtype=np.int8)
+            old_data[where1] = index + 1
+            delta = new_data - old_data
+
+            ind_new = np.where(delta > 0)       # new data points
+            ind_del = np.where(delta < 0)       # deleted data points
+
+            # transfer the changes to the prediction layer
+            self.prediction[ind_new] = 1
+            self.prediction[ind_del] = 0
+            layer2 = self.viewer.layers['Prediction']
+            layer2.data = self.prediction
+
+            # transfer the changes to the uncertainty layer
+            unc_value = area_i['unc_value']
+            self.uncertainty[ind_new] = unc_value
+            self.uncertainty[ind_del] = 0.0
+            layer3 = self.viewer.layers['Uncertainty']
+            layer3.data = self.uncertainty
 
     def on_close(self):
         # (29.05.2024)
