@@ -12,11 +12,13 @@ import napari
 import SimpleITK as sitk
 import time
 import warnings
+from bioio.writers import OmeTiffWriter
 from scipy import ndimage
 from pathlib import Path
 from qtpy.QtCore import QSize, Qt
 from qtpy.QtWidgets import (
     QApplication,
+    QCheckBox,
     QFileDialog,
     QGridLayout,
     QGroupBox,
@@ -80,6 +82,8 @@ class VessQC(QWidget):
         btnFinalSeg = QPushButton('Generate final segmentation')
         btnFinalSeg.clicked.connect(self.btn_final_seg)
 
+        cbxSaveUnc = QCheckBox('Save uncertainty')
+
         # Define the layout of the main widget
         self.setLayout(QVBoxLayout())
         self.layout().addWidget(label1)
@@ -93,6 +97,7 @@ class VessQC(QWidget):
         self.layout().addWidget(btnReload)
         self.layout().addWidget(label4)
         self.layout().addWidget(btnFinalSeg)
+        self.layout().addWidget(cbxSaveUnc)
 
         # Close the uncertanty_list when Napari is closed
         def wrapper(self, func, event):
@@ -190,83 +195,55 @@ class VessQC(QWidget):
         self.popup_window = QWidget()
         self.popup_window.setWindowTitle('napari')
         self.popup_window.setMinimumSize(QSize(350, 300))
-        popup_window_layout = QVBoxLayout()
-        self.popup_window.setLayout(popup_window_layout)
+        vbox_layout = QVBoxLayout()
+        self.popup_window.setLayout(vbox_layout)
 
         # define a scroll area inside the pop-up window
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
-        popup_window_layout.addWidget(scroll_area)
+        vbox_layout.addWidget(scroll_area)
 
         # Define a group box inside the scroll area
         group_box = QGroupBox('Uncertainty List')
-        group_box_layout = QGridLayout()
-        group_box.setLayout(group_box_layout)
+        grid_layout = QGridLayout()
+        group_box.setLayout(grid_layout)
         scroll_area.setWidget(group_box)
 
         # add widgets to the group box
         i = 0
-        group_box_layout.addWidget(QLabel('Area'), i, 0)
-        group_box_layout.addWidget(QLabel('Uncertainty'), i, 1)
-        group_box_layout.addWidget(QLabel('Counts'), i, 2)
-        group_box_layout.addWidget(QLabel('done'), i, 3)
+        grid_layout.addWidget(QLabel('Area'), i, 0)
+        grid_layout.addWidget(QLabel('Uncertainty'), i, 1)
+        grid_layout.addWidget(QLabel('Counts'), i, 2)
+        grid_layout.addWidget(QLabel('done'), i, 3)
         i += 1
 
         # Define buttons and select values for some labels
         for area_i in self.areas[1:]:
-            if area_i['done']:      # show only the untreated areas
-                continue
-
-            name = area_i['name']
-            button1 = QPushButton(name)
-            button1.clicked.connect(self.btn_show_area)
-            unc_value = '%.5f' % (area_i['unc_value'])
-            label1 = QLabel(unc_value)
-            counts = '%d' % (area_i['counts'])
-            label2 = QLabel(counts)
-            button2 = QPushButton('done', objectName=name)
-            button2.clicked.connect(self.btn_done)
-
-            group_box_layout.addWidget(button1, i, 0)
-            group_box_layout.addWidget(label1, i, 1)
-            group_box_layout.addWidget(label2, i, 2)
-            group_box_layout.addWidget(button2, i, 3)
-            i += 1
+            if area_i['done']: continue
+            else:                       # show only the untreated areas
+                self.new_entry(area_i, grid_layout, i)
+                i += 1
 
         # show a horizontal line
         line = QWidget()
         line.setFixedHeight(3)
         line.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         line.setStyleSheet('background-color: mediumblue')
-        group_box_layout.addWidget(line, i, 0, 1, -1)
+        grid_layout.addWidget(line, i, 0, 1, -1)
         i += 1
 
         # The treated areas are shown in the lower part of the group box
-        group_box_layout.addWidget(QLabel('Area'), i, 0)
-        group_box_layout.addWidget(QLabel('Uncertainty'), i, 1)
-        group_box_layout.addWidget(QLabel('Counts'), i, 2)
-        group_box_layout.addWidget(QLabel('restore'), i, 3)
+        grid_layout.addWidget(QLabel('Area'), i, 0)
+        grid_layout.addWidget(QLabel('Uncertainty'), i, 1)
+        grid_layout.addWidget(QLabel('Counts'), i, 2)
+        grid_layout.addWidget(QLabel('restore'), i, 3)
         i += 1
 
         for area_i in self.areas[1:]:
-            if not area_i['done']:      # show only the treated areas
-                continue
-
-            name = area_i['name']
-            button1 = QPushButton(name)
-            button1.clicked.connect(self.btn_show_area)
-            unc_value = '%.5f' % (area_i['unc_value'])
-            label1 = QLabel(unc_value)
-            counts = '%d' % (area_i['counts'])
-            label2 = QLabel(counts)
-            button2 = QPushButton('restore', objectName=name)
-            button2.clicked.connect(self.btn_restore)
-
-            group_box_layout.addWidget(button1, i, 0)
-            group_box_layout.addWidget(label1, i, 1)
-            group_box_layout.addWidget(label2, i, 2)
-            group_box_layout.addWidget(button2, i, 3)
-            i += 1
+            if area_i['done']:          # show only the treated areas
+                self.new_entry(area_i, grid_layout, i)
+                i += 1
+            else: continue
 
         # Show the pop-up window
         self.popup_window.show()
@@ -300,11 +277,9 @@ class VessQC(QWidget):
     def btn_done(self):
         # (18.07.2024)
         name = self.sender().objectName()       # name of the object: 'Area n'
-        index = int(name[5:])                   # n = number of the area
-        self.areas[index]['done'] = True        # mark this area as treated
         self.compare_and_transfer(name)         # transfer of data
-        layer1 = self.viewer.layers[name]
-        self.viewer.layers.remove(layer1)       # delete the layer 'Area n'
+        layer = self.viewer.layers[name]
+        self.viewer.layers.remove(layer)        # delete the layer 'Area n'
         self.btn_uncertainty()                  # open a new pop-up window
 
     def btn_restore(self):
@@ -389,11 +364,44 @@ class VessQC(QWidget):
             self.viewer.add_image(self.uncertainty, name='Uncertainty', \
                 blending='additive', visible=False)
 
-        self.build_areas()              # define areas
+        self.build_areas()          # define areas
 
     def btn_final_seg(self):
-        # (02.08.2024)
+        # (13.08.2024)
         print('Generate final segmentation')
+
+        # Close all open array layers
+        lst = [layer for layer in self.viewer.layers \
+            if layer.name.startswith('Area') \
+            and isinstance(layer, napari.layers.Labels)]
+        print('1st close areas', [layer.name for layer in lst])
+
+        for layer in lst:
+            name = layer.name
+            self.compare_and_transfer(name)
+            self.viewer.layers.remove(layer)    # delete the layer 'Area n'
+
+        if hasattr(self, 'popup_window'):       # close the pop-up window
+            self.popup_window.close()
+        if hasattr(self, 'parent'):
+            default_name = str(self.parent / 'Prediction.tif')
+        else:
+            default_name = 'Prediction.tif'
+        filter1 = "TIFF files (*.tif *.tiff);;All files (*.*)"
+
+        try:
+            filename, _ = QFileDialog.getSaveFileName(self, 'Prediction file', \
+                default_name, filter1)
+            if filename == '':                  # Cancel has been pressed
+                print('The "Cancel" button has been pressed.')
+                return
+            else:
+                print('2nd safe', filename)
+                layer = self.viewer.layers['Prediction']
+                data = layer.data
+                OmeTiffWriter.save(data, filename, dim_order='ZYX')
+        except BaseException as error:
+            print('Error:', error)
 
     def btn_info(self):
         # (25.07.2024)
@@ -429,6 +437,31 @@ class VessQC(QWidget):
             print('This is not an image or label layer!')
         print()
 
+    def new_entry(self, area_i, grid_layout, i):
+        # (13.08.2024) New entry for 'Area n'
+        name = area_i['name']
+        done = area_i['done']
+        button1 = QPushButton(name)
+        button1.clicked.connect(self.btn_show_area)
+        if done:
+            button1.setEnabled(False)       # enable button for treated areas
+        unc_value = '%.5f' % (area_i['unc_value'])
+        label1 = QLabel(unc_value)
+        counts = '%d' % (area_i['counts'])
+        label2 = QLabel(counts)
+
+        if done:
+            button2 = QPushButton('restore', objectName=name)
+            button2.clicked.connect(self.btn_restore)
+        else:
+            button2 = QPushButton('done', objectName=name)
+            button2.clicked.connect(self.btn_done)
+
+        grid_layout.addWidget(button1, i, 0)
+        grid_layout.addWidget(label1, i, 1)
+        grid_layout.addWidget(label2, i, 2)
+        grid_layout.addWidget(button2, i, 3)
+
     def build_areas(self):
         # (09.08.2024) Define areas that correspond to values of equal 
         # uncertainty
@@ -451,8 +484,8 @@ class VessQC(QWidget):
         if any(layer.name == name and isinstance(layer, napari.layers.Labels) \
             for layer in self.viewer.layers):
             # search for the changed data points
-            layer1 = self.viewer.layers[name]
-            new_data = layer1.data
+            layer = self.viewer.layers[name]
+            new_data = layer.data
 
             # compare new and old data
             where1 = area_i['where']            # recall the old values
@@ -466,15 +499,17 @@ class VessQC(QWidget):
             # transfer the changes to the prediction layer
             self.prediction[ind_new] = 1
             self.prediction[ind_del] = 0
-            layer2 = self.viewer.layers['Prediction']
-            layer2.data = self.prediction
+            layer = self.viewer.layers['Prediction']
+            layer.data = self.prediction
 
             # transfer the changes to the uncertainty layer
             unc_value = area_i['unc_value']
             self.uncertainty[ind_new] = unc_value
             self.uncertainty[ind_del] = 0.0
-            layer3 = self.viewer.layers['Uncertainty']
-            layer3.data = self.uncertainty
+            layer = self.viewer.layers['Uncertainty']
+            layer.data = self.uncertainty
+
+            area_i['done'] = True               # mark this area as treated
 
     def on_close(self):
         # (29.05.2024)
