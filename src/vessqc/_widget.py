@@ -44,6 +44,7 @@ class VessQC(QWidget):
         super().__init__()
         self.viewer = viewer
         self.start_multiple_viewer = True
+        self.save_uncertainty = False
 
         # Define some labels and buttons
         label1 = QLabel('Vessel quality check')
@@ -83,6 +84,7 @@ class VessQC(QWidget):
         btnFinalSeg.clicked.connect(self.btn_final_seg)
 
         cbxSaveUnc = QCheckBox('Save uncertainty')
+        cbxSaveUnc.stateChanged.connect(self.cbx_save_unc)
 
         # Define the layout of the main widget
         self.setLayout(QVBoxLayout())
@@ -112,80 +114,73 @@ class VessQC(QWidget):
 
     def btn_load(self):
         # (23.05.2024);
-        if self.start_multiple_viewer:             # run this part only once!
+        if self.start_multiple_viewer:          # run this part only once!
             # Call the multiple viewer and the cross widget
             dock_widget = MultipleViewerWidget(self.viewer)
             cross_widget = CrossWidget(self.viewer)
 
-            self.viewer.window.add_dock_widget(dock_widget, name="Sample")
+            self.viewer.window.add_dock_widget(dock_widget, name="Views")
             self.viewer.window.add_dock_widget(cross_widget, name="Cross", \
                 area="left")
             self.start_multiple_viewer = False
 
         # Find and load the data file
-        try:
-            filter1 = "NIfTI files (*.nii *.nii.gz);;TIFF files (*.tif *.tiff);;\
-                All files (*.*)"
-            filename = QFileDialog.getOpenFileName(self, 'Input file', '', \
-                filter1)
+        filter1 = "NIfTI files (*.nii *.nii.gz);;TIFF files (*.tif *.tiff);;\
+            All files (*.*)"
+        filename, _ = QFileDialog.getOpenFileName(self, 'Input file', '',
+            filter1)
+        image_path = Path(filename)
+        self.parent = image_path.parent             # The data directory
+        self.suffix = image_path.suffix.lower()     # File extension
+        name1 = image_path.stem                     # Name of the file
 
-            if filename == ('', ''):                # Cancel has been pressed
-                print('The "Cancel" button has been pressed.')
+        if filename == '':                          # Cancel has been pressed
+            print('The "Cancel" button has been pressed.')
+            return
+        else:
+            print('Load', image_path)
+            try:
+                sitk_image = sitk.ReadImage(image_path)
+                self.image = sitk.GetArrayFromImage(sitk_image)
+            except BaseException as error:
+                print('Error:', error)
                 return
-            else:
-                image_path = Path(filename[0])
-                image_data = sitk.ReadImage(image_path)
-                self.image = sitk.GetArrayFromImage(image_data)
-                name1 = image_path.stem             # Name of the file
-                self.parent = image_path.parent     # The data directory
-                self.suffix = image_path.suffix.lower()
 
-                # Show the image in Napari
-                self.viewer.add_image(self.image, name=name1)
-        except BaseException as error:
-            print('Error:', error)
+            self.viewer.add_image(self.image, name=name1)   # Show the image
 
     def btn_segmentation(self):
         # (23.05.2024)
-        # The file type depends on the extension
-        if self.suffix == '.nii':
-            name1 = 'Prediction.nii'
-            name2 = 'Uncertainty.nii'
+        if self.suffix == '.nii':       # The file type depends on the extension
+            prediction_file  = self.parent / 'Prediction.nii'
+            uncertainty_file = self.parent / 'Uncertainty.nii'
         elif self.suffix == '.gz':
-            name1 = 'Prediction.nii.gz'
-            name2 = 'Uncertainty.nii.gz'
+            prediction_file  = self.parent / 'Prediction.nii.gz'
+            uncertainty_file = self.parent / 'Uncertainty.nii.gz'
         elif self.suffix == '.tif':
-            name1 = 'Prediction.tif'
-            name2 = 'Uncertainty.tif'
+            prediction_file  = self.parent / 'Prediction.tif'
+            uncertainty_file = self.parent / 'Uncertainty.tif'
         elif self.suffix == 'tiff':
-            name1 = 'Prediction.tiff'
-            name2 = 'Uncertainty.tiff'
+            prediction_file  = self.parent / 'Prediction.tiff'
+            uncertainty_file = self.parent / 'Uncertainty.tiff'
         else:
             print('Unknown file type')
             return
 
-        # Load the prediction file
         try:
-            prediction_path = self.parent / name1
-            prediction_data = sitk.ReadImage(prediction_path)
-            self.prediction = sitk.GetArrayFromImage(prediction_data)
-
-            # Show prediction in a label layer
-            self.viewer.add_labels(self.prediction, name='Prediction')
+            print('Load', prediction_file)      # Load the prediction file
+            sitk_image = sitk.ReadImage(prediction_file)
+            self.prediction = sitk.GetArrayFromImage(sitk_image)
+            print('Load', uncertainty_file)     # Load the uncertainty file
+            sitk_image = sitk.ReadImage(uncertainty_file)
+            self.uncertainty = sitk.GetArrayFromImage(sitk_image)
         except BaseException as error:
             print('Error:', error)
+            return
 
-        # Load the uncertainty file and calculate data and counts
-        try:
-            uncertainty_path = self.parent / name2
-            uncertainty_data = sitk.ReadImage(uncertainty_path)
-            self.uncertainty = sitk.GetArrayFromImage(uncertainty_data)
-
-            # Save uncertainty layer, but hide it
-            self.viewer.add_image(self.uncertainty, name='Uncertainty', \
-                blending='additive', visible=False)
-        except BaseException as error:
-            print('Error', error)
+        # Save the data in label or image layers
+        self.viewer.add_labels(self.prediction, name='Prediction')
+        self.viewer.add_image(self.uncertainty, name='Uncertainty', \
+            blending='additive', visible=False)
 
         self.build_areas()              # define areas
 
@@ -370,11 +365,11 @@ class VessQC(QWidget):
         # (13.08.2024)
         print('Generate final segmentation')
 
-        # Close all open array layers
+        # Close all open area layers
         lst = [layer for layer in self.viewer.layers \
             if layer.name.startswith('Area') \
             and isinstance(layer, napari.layers.Labels)]
-        print('1st close areas', [layer.name for layer in lst])
+        print('1st: Close areas', [layer.name for layer in lst])
 
         for layer in lst:
             name = layer.name
@@ -385,23 +380,43 @@ class VessQC(QWidget):
             self.popup_window.close()
         if hasattr(self, 'parent'):
             default_name = str(self.parent / 'Prediction.tif')
+            unc_name = str(self.parent / 'Uncertainty.tif')
         else:
             default_name = 'Prediction.tif'
-        filter1 = "TIFF files (*.tif *.tiff);;All files (*.*)"
+            unc_name = 'Uncertainty.tif'
 
-        try:
-            filename, _ = QFileDialog.getSaveFileName(self, 'Prediction file', \
-                default_name, filter1)
-            if filename == '':                  # Cancel has been pressed
-                print('The "Cancel" button has been pressed.')
-                return
-            else:
-                print('2nd safe', filename)
-                layer = self.viewer.layers['Prediction']
-                data = layer.data
+        filter1 = "TIFF files (*.tif *.tiff);;All files (*.*)"
+        filename, _ = QFileDialog.getSaveFileName(self, 'Prediction file', \
+            default_name, filter1)
+
+        if filename == '':                  # Cancel has been pressed
+            print('The "Cancel" button has been pressed.')
+            return
+        elif 'Prediction' in self.viewer.layers:
+            print('2nd: Save', filename)
+            layer = self.viewer.layers['Prediction']
+            data = layer.data
+
+            try:
                 OmeTiffWriter.save(data, filename, dim_order='ZYX')
-        except BaseException as error:
-            print('Error:', error)
+            except BaseException as error:
+                print('Error:', error)
+
+        if self.save_uncertainty and 'Uncertainty' in self.viewer.layers:
+            print('3rd: Save', unc_name)
+            layer = self.viewer.layers['Uncertainty']
+            data = layer.data
+
+            try:
+                OmeTiffWriter.save(data, unc_name, dim_order='ZYX')
+            except BaseException as error:
+                print('Error:', error)
+
+    def cbx_save_unc(self, state):
+        if state == Qt.Checked:
+            self.save_uncertainty = True
+        else:
+            self.save_uncertainty = False
 
     def btn_info(self):
         # (25.07.2024)
