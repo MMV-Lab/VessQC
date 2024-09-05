@@ -253,11 +253,12 @@ class VessQC(QWidget):
         area_i = self.areas[index]          # selected area
         unc_value = area_i['unc_value']     # uncertainty value of the area
         centroid  = area_i['centroid']      # center of the data points
-        print('Centroid_0:', centroid)
 
         # Check whether the layer 'name' already exists
-        if any(layer.name == name and isinstance(layer, napari.layers.Labels)
+        if any(layer.name == name and
+            isinstance(layer, napari.layers.Labels)
             for layer in self.viewer.layers):
+            # Place the affected label layer at the top of the stack
             layer = self.viewer.layers[name]
             source_index = self.viewer.layers.index(layer)
             target_index = len(self.viewer.layers)
@@ -277,7 +278,7 @@ class VessQC(QWidget):
                 centroid = ndimage.center_of_mass(data)
                 centroid = (int(centroid[0]), int(centroid[1]), int(centroid[2]))
                 area_i['centroid'] = centroid
-                print('Centroid_1:', centroid)
+                print('Centroid:', centroid)
 
         # Set the appropriate level and focus
         self.viewer.dims.current_step = centroid
@@ -304,8 +305,7 @@ class VessQC(QWidget):
     def btn_save(self):
         # (26.07.2024)
         # 1st: save the prediction data
-        layer = self.viewer.layers['Prediction']
-        data = layer.data
+        data = self.viewer.layers['Prediction'].data
         filename = self.parent / '_Prediction.npy'
         print('Save', filename)
 
@@ -319,8 +319,7 @@ class VessQC(QWidget):
                 file.close()
 
         #2nd: save the uncertainty data
-        layer = self.viewer.layers['Uncertainty']
-        data = layer.data
+        data = self.viewer.layers['Uncertainty'].data
         filename = self.parent / '_Uncertainty.npy'
         print('Save', filename)
 
@@ -352,8 +351,7 @@ class VessQC(QWidget):
         if any(layer.name.startswith('Prediction') and
             isinstance(layer, napari.layers.Labels)
             for layer in self.viewer.layers):
-            layer = self.viewer.layers['Prediction']
-            layer.data = self.prediction
+            self.viewer.layers['Prediction'].data = self.prediction
         else:
             self.viewer.add_labels(self.prediction, name='Prediction')
 
@@ -374,8 +372,7 @@ class VessQC(QWidget):
         if any(layer.name.startswith('Uncertainty') and
             isinstance(layer, napari.layers.Image)
             for layer in self.viewer.layers):
-            layer = self.viewer.layers['Uncertainty']
-            layer.data = self.uncertainty
+            self.viewer.layers['Uncertainty'].data = self.uncertainty
         else:
             self.viewer.add_image(self.uncertainty, name='Uncertainty', \
                 blending='additive', visible=False)
@@ -519,8 +516,7 @@ class VessQC(QWidget):
             isinstance(layer, napari.layers.Labels)
             for layer in self.viewer.layers):
             # search for the changed data points
-            layer = self.viewer.layers[name]
-            new_data = layer.data
+            new_data = self.viewer.layers[name].data
 
             # compare new and old data
             where1 = area_i['where']            # recall the old values
@@ -534,15 +530,13 @@ class VessQC(QWidget):
             # transfer the changes to the prediction layer
             self.prediction[ind_new] = 1
             self.prediction[ind_del] = 0
-            layer = self.viewer.layers['Prediction']
-            layer.data = self.prediction
+            self.viewer.layers['Prediction'].data = self.prediction
 
             # transfer the changes to the uncertainty layer
             unc_value = area_i['unc_value']
             self.uncertainty[ind_new] = unc_value
             self.uncertainty[ind_del] = 0.0
-            layer = self.viewer.layers['Uncertainty']
-            layer.data = self.uncertainty
+            self.viewer.layers['Uncertainty'].data = self.uncertainty
 
             area_i['done'] = True               # mark this area as treated
 
