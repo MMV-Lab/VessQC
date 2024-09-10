@@ -12,7 +12,9 @@ import napari
 import SimpleITK as sitk
 import time
 import warnings
+from bioio import BioImage
 from bioio.writers import OmeTiffWriter
+import bioio_tifffile
 from scipy import ndimage
 from pathlib import Path
 from qtpy.QtCore import QSize, Qt
@@ -136,9 +138,22 @@ class VessQC(QWidget):
         self.suffix = image_path.suffix.lower()     # File extension
         name1 = image_path.stem                     # Name of the file
 
+        if self.suffix == '.tif' or self.suffix == '.tiff':
+            self.is_tifffile = True
+        else:
+            self.is_tifffile = False
+
         if filename == '':                          # Cancel has been pressed
             print('The "Cancel" button has been pressed.')
             return
+        elif self.is_tifffile:
+            print('Load', image_path)
+            try:
+                bioio_image = BioImage(image_path, reader=bioio_tifffile.Reader)
+                self.image = bioio_image.get_image_data("ZYX", T=0, C=0)
+            except BaseException as error:
+                print('Error:', error)
+                return
         else:
             print('Load', image_path)
             try:
@@ -148,7 +163,7 @@ class VessQC(QWidget):
                 print('Error:', error)
                 return
 
-            self.viewer.add_image(self.image, name=name1)   # Show the image
+        self.viewer.add_image(self.image, name=name1)   # Show the image
 
     def btn_segmentation(self):
         # (23.05.2024)
@@ -168,16 +183,30 @@ class VessQC(QWidget):
             print('Unknown file type')
             return
 
-        try:
-            print('Load', prediction_file)      # Load the prediction file
-            sitk_image = sitk.ReadImage(prediction_file)
-            self.prediction = sitk.GetArrayFromImage(sitk_image)
-            print('Load', uncertainty_file)     # Load the uncertainty file
-            sitk_image = sitk.ReadImage(uncertainty_file)
-            self.uncertainty = sitk.GetArrayFromImage(sitk_image)
-        except BaseException as error:
-            print('Error:', error)
-            return
+        if self.is_tifffile:
+            try:
+                print('Load', prediction_file)      # Load the prediction file
+                bioio_image = BioImage(prediction_file,
+                    reader=bioio_tifffile.Reader)
+                self.prediction = bioio_image.get_image_data("ZYX", T=0, C=0)
+                print('Load', uncertainty_file)     # Load the uncertainty file
+                bioio_image = BioImage(uncertainty_file,
+                    reader=bioio_tifffile.Reader)
+                self.uncertainty = bioio_image.get_image_data("ZYX", T=0, C=0)
+            except BaseException as error:
+                print('Error:', error)
+                return
+        else:
+            try:
+                print('Load', prediction_file)      # Load the prediction file
+                sitk_image = sitk.ReadImage(prediction_file)
+                self.prediction = sitk.GetArrayFromImage(sitk_image)
+                print('Load', uncertainty_file)     # Load the uncertainty file
+                sitk_image = sitk.ReadImage(uncertainty_file)
+                self.uncertainty = sitk.GetArrayFromImage(sitk_image)
+            except BaseException as error:
+                print('Error:', error)
+                return
 
         # Save the data in label or image layers
         self.viewer.add_labels(self.prediction, name='Prediction')
