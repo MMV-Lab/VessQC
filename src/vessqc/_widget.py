@@ -12,9 +12,10 @@ import napari
 import SimpleITK as sitk
 import time
 import warnings
-from bioio import BioImage
+from tifffile import imread
+#from bioio import BioImage
 from bioio.writers import OmeTiffWriter
-import bioio_tifffile
+#import bioio_tifffile
 from scipy import ndimage
 from pathlib import Path
 from qtpy.QtCore import QSize, Qt
@@ -103,6 +104,7 @@ class VessQC(QWidget):
         self.layout().addWidget(btnFinalSeg)
         self.layout().addWidget(cbxSaveUnc)
 
+        """
         # Close the uncertanty_list when Napari is closed
         def wrapper(self, func, event):
             self.on_close()
@@ -113,6 +115,7 @@ class VessQC(QWidget):
             func = self.viewer.window._qt_window.closeEvent
             self.viewer.window._qt_window.closeEvent = \
                 lambda event: wrapper(self, func, event)
+        """
 
     def btn_load(self):
         # (23.05.2024);
@@ -149,8 +152,9 @@ class VessQC(QWidget):
         elif self.is_tifffile:
             print('Load', image_path)
             try:
-                bioio_image = BioImage(image_path, reader=bioio_tifffile.Reader)
-                self.image = bioio_image.get_image_data("ZYX", T=0, C=0)
+                #bioio_image = BioImage(image_path) # reader=bioio_tifffile.Reader
+                #self.image = bioio_image.get_image_data("ZYX", T=0, C=0)
+                self.image = imread(image_path)
             except BaseException as error:
                 print('Error:', error)
                 return
@@ -186,13 +190,13 @@ class VessQC(QWidget):
         if self.is_tifffile:
             try:
                 print('Load', prediction_file)      # Load the prediction file
-                bioio_image = BioImage(prediction_file,
-                    reader=bioio_tifffile.Reader)
-                self.prediction = bioio_image.get_image_data("ZYX", T=0, C=0)
+                #bioio_image = BioImage(prediction_file)
+                #self.prediction = bioio_image.get_image_data("ZYX", T=0, C=0)
+                self.prediction = imread(prediction_file)
                 print('Load', uncertainty_file)     # Load the uncertainty file
-                bioio_image = BioImage(uncertainty_file,
-                    reader=bioio_tifffile.Reader)
-                self.uncertainty = bioio_image.get_image_data("ZYX", T=0, C=0)
+                #bioio_image = BioImage(uncertainty_file)
+                #self.uncertainty = bioio_image.get_image_data("ZYX", T=0, C=0)
+                self.uncertainty = imread(uncertainty_file)
             except BaseException as error:
                 print('Error:', error)
                 return
