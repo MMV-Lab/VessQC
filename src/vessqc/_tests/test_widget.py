@@ -25,7 +25,7 @@ def prediction_data():
 
 @pytest.fixture
 def uncertainty_data():
-    uncertainty_file = self.parent / 'Uncertainty.tif'
+    uncertainty_file = parent / 'Uncertainty.tif'
     return imread(uncertainty_file)
 
 # define a fixture for the Napari viewer and the VessQC object
@@ -60,7 +60,7 @@ def test_btn_load(mock_get_open_file_name, vess_qc, image_data):
     assert vess_qc.suffix == '.tif'
 
 
-def test_btn_segmentation(vess_qc):
+def test_btn_segmentation(vess_qc, prediction_data, uncertainty_data):
     viewer = vess_qc.viewer
     vess_qc.suffix = '.tif'
     vess_qc.parent = parent
@@ -69,7 +69,9 @@ def test_btn_segmentation(vess_qc):
     vess_qc.btn_segmentation()
 
     assert len(viewer.layers) == 2
-    assert viewer.layers[0].name == 'Prediction'
-    assert viewer.layers[1].name == 'Uncertainty'
-    #assert np.array_equal(viewer.layers[0].data, prediction_data)
-    #assert np.array_equal(viewer.layers[1].data, uncertainty_data)
+    layer0 = viewer.layers[0]
+    layer1 = viewer.layers[1]
+    assert layer0.name == 'Prediction'
+    assert layer1.name == 'Uncertainty'
+    assert np.array_equal(layer0.data, prediction_data)
+    assert np.array_equal(layer1.data, uncertainty_data)
