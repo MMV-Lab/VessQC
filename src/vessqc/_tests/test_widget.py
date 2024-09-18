@@ -1,18 +1,18 @@
 import pytest
 import numpy as np
-import PyQt5
+#import PyQt5
+import qtpy
+from qtpy.QtWidgets import QGridLayout
 from unittest.mock import patch
 from pathlib import Path
 from tifffile import imread
 from vessqc._widget import VessQC
 # capsys is a pytest fixture that captures stdout and stderr output streams
 
-
 # Class to save and share variables between tests
 class ValueStorage():
     parent = Path(__file__).parent / "Data"
     image_path =  parent / "Image.tif"
-    areas = None
 
 
 # define a fixture for the image
@@ -41,6 +41,12 @@ def vess_qc(make_napari_viewer):
     viewer = make_napari_viewer()
     return VessQC(viewer)           # create a VessQC object and give it back
 
+@pytest.fixture
+def areas(vess_qc, uncertainty_data):
+    vess_qc.uncertainty = uncertainty_data
+    vess_qc.build_areas()
+    return vess_qc.areas
+
 
 @pytest.mark.init
 def test_init(vess_qc):
@@ -54,9 +60,8 @@ def test_init(vess_qc):
 @patch("qtpy.QtWidgets.QFileDialog.getOpenFileName",
     return_value=(ValueStorage.image_path, None))
 
-
 @pytest.mark.load
-def test_btn_load(mock_get_open_file_name, vess_qc, image_data):
+def test_load(mock_get_open_file_name, vess_qc, image_data):
     viewer = vess_qc.viewer
     vess_qc.btn_load()
 
@@ -70,7 +75,8 @@ def test_btn_load(mock_get_open_file_name, vess_qc, image_data):
 
 
 @pytest.mark.segmentation
-def test_btn_segmentation(vess_qc, prediction_data, uncertainty_data):
+def test_segmentation(vess_qc, prediction_data, uncertainty_data):
+    # (13.09.2024)
     viewer = vess_qc.viewer
     vess_qc.suffix = '.tif'
     vess_qc.parent = ValueStorage.parent
@@ -103,12 +109,47 @@ def test_build_areas(vess_qc, uncertainty_data):
     assert vess_qc.areas[6]['done'] == False
 
 
+@patch("qtpy.QtWidgets.QWidget.show")
+
 @pytest.mark.uncertainty
-def test_btn_uncertainty(vess_qc):
+def test_uncertainty(mock_widget_show, vess_qc, areas):
     # (17.09.2024)
-    vess_qc.areas = ValueStorage.areas
+    vess_qc.areas = areas
     vess_qc.btn_uncertainty()
 
     assert str(type(vess_qc.popup_window)) == "<class 'PyQt5.QtWidgets.QWidget'>"
     assert vess_qc.popup_window.windowTitle() == 'napari'
-    #assert vess_qc.popup_window.minimumSize == PyQt5.QtCore.QSize(350, 300)
+    assert vess_qc.popup_window.minimumSize() == qtpy.QtCore.QSize(350, 300)
+    mock_widget_show.assert_called_once()
+
+
+@pytest.mark.new_entry
+def test_new_entry(vess_qc, areas):
+    # (18.09.2024)
+    area_i = areas[2]
+    grid_layout = QGridLayout()
+    name = areas[2]['name']
+    unc_value = '%.5f' % (areas[2]['unc_value'])
+    counts = '%d' % (areas[2]['counts'])
+    
+    assert grid_layout.rowCount() == 1
+    assert grid_layout.columnCount() == 1
+
+    vess_qc.new_entry(area_i, grid_layout, 2)
+    item_0 = grid_layout.itemAtPosition(2, 0)
+    item_1 = grid_layout.itemAtPosition(2, 1)
+    item_2 = grid_layout.itemAtPosition(2, 2)
+    item_3 = grid_layout.itemAtPosition(2, 3)
+
+    assert grid_layout.rowCount() == 3
+    assert grid_layout.columnCount() == 4
+    assert str(type(item_0)) == "<class 'PyQt5.QtWidgets.QWidgetItem'>"
+    assert str(type(item_0.widget())) == "<class 'PyQt5.QtWidgets.QPushButton'>"
+    assert str(type(item_1.widget())) == "<class 'PyQt5.QtWidgets.QLabel'>"
+    assert str(type(item_2.widget())) == "<class 'PyQt5.QtWidgets.QLabel'>"
+    assert str(type(item_3.widget())) == "<class 'PyQt5.QtWidgets.QPushButton'>"
+    assert item_0.widget().text() == name
+    assert item_1.widget().text() == unc_value
+    assert item_2.widget().text() == counts
+    assert item_3.widget().text() == 'done'
+    

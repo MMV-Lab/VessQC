@@ -573,8 +573,10 @@ class VessQC(QWidget):
 
             area_i['done'] = True               # mark this area as treated
 
+    """
     def on_close(self):
         # (29.05.2024)
         print("Good by!")
         if hasattr(self, 'popup_window'):
             self.popup_window.close()
+    """
