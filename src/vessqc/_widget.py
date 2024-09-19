@@ -235,7 +235,7 @@ class VessQC(QWidget):
         vbox_layout.addWidget(scroll_area)
 
         # Define a group box inside the scroll area
-        group_box = QGroupBox('Uncertainty List')
+        group_box = QGroupBox('Uncertainty list')
         grid_layout = QGridLayout()
         group_box.setLayout(grid_layout)
         scroll_area.setWidget(group_box)
