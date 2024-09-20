@@ -15,7 +15,6 @@ import warnings
 from tifffile import imread
 # from bioio import BioImage
 from bioio.writers import OmeTiffWriter
-# import bioio_tifffile
 from scipy import ndimage
 from pathlib import Path
 from qtpy.QtCore import QSize, Qt

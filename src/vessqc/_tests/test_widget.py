@@ -1,8 +1,10 @@
 import pytest
 import numpy as np
-#import PyQt5
+import napari
 import qtpy
 from qtpy.QtWidgets import QGridLayout
+from qtpy.QtTest import QTest
+from qtpy.QtCore import Qt
 from unittest.mock import patch
 from pathlib import Path
 from tifffile import imread
@@ -30,6 +32,11 @@ def uncertainty_data():
     uncertainty_file = ValueStorage.parent / 'Uncertainty.tif'
     return imread(uncertainty_file)
 
+@pytest.fixture
+def area5_data():
+    area5_file = ValueStorage.parent / 'Area5.tif'
+    return imread(area5_file)
+
 # make_napari_viewer is a pytest fixture that returns a napari viewer object
 # you don't need to import it, as long as napari is installed
 # in your testing environment
@@ -56,7 +63,6 @@ def test_init(vessqc):
 # ersetzt
 @patch("qtpy.QtWidgets.QFileDialog.getOpenFileName",
     return_value=(ValueStorage.image_path, None))
-
 @pytest.mark.load
 def test_load(mock_get_open_file_name, vessqc, image_data):
     viewer = vessqc.viewer
@@ -107,11 +113,11 @@ def test_build_areas(vessqc, uncertainty_data):
 
 
 @patch("qtpy.QtWidgets.QWidget.show")
-
 @pytest.mark.uncertainty
 def test_uncertainty(mock_widget_show, vessqc, areas):
     # (17.09.2024)
     vessqc.areas = areas
+    vessqc.areas[7]['done'] == True
     vessqc.btn_uncertainty()
     popup_window = vessqc.popup_window
 
@@ -134,10 +140,6 @@ def test_uncertainty(mock_widget_show, vessqc, areas):
     assert group_box.title() == 'Uncertainty list'
 
     grid_layout = group_box.layout()
-    area_i = areas[5]
-    name = area_i['name']
-    unc_value = '%.5f' % (area_i['unc_value'])
-    counts = '%d' % (area_i['counts'])
     item_0 = grid_layout.itemAtPosition(5, 0)
     item_1 = grid_layout.itemAtPosition(5, 1)
     item_2 = grid_layout.itemAtPosition(5, 2)
@@ -145,9 +147,9 @@ def test_uncertainty(mock_widget_show, vessqc, areas):
     assert str(type(grid_layout)) == "<class 'PyQt5.QtWidgets.QGridLayout'>"
     assert grid_layout.rowCount() == 12
     assert grid_layout.columnCount() == 4
-    assert item_0.widget().text() == name
-    assert item_1.widget().text() == unc_value
-    assert item_2.widget().text() == counts
+    assert item_0.widget().text() == areas[5]['name']
+    assert item_1.widget().text() == '%.5f' % (areas[5]['unc_value'])
+    assert item_2.widget().text() == '%d' % (areas[5]['counts'])
     assert item_3.widget().text() == 'done'
 
     mock_widget_show.assert_called_once()
@@ -159,13 +161,6 @@ def test_new_entry(vessqc, areas):
     # (18.09.2024)
     area_i = areas[2]
     grid_layout = QGridLayout()
-    name = area_i['name']
-    unc_value = '%.5f' % (area_i['unc_value'])
-    counts = '%d' % (area_i['counts'])
-    
-    assert grid_layout.rowCount() == 1
-    assert grid_layout.columnCount() == 1
-
     vessqc.new_entry(area_i, grid_layout, 2)
     item_0 = grid_layout.itemAtPosition(2, 0)
     item_1 = grid_layout.itemAtPosition(2, 1)
@@ -179,8 +174,52 @@ def test_new_entry(vessqc, areas):
     assert str(type(item_1.widget())) == "<class 'PyQt5.QtWidgets.QLabel'>"
     assert str(type(item_2.widget())) == "<class 'PyQt5.QtWidgets.QLabel'>"
     assert str(type(item_3.widget())) == "<class 'PyQt5.QtWidgets.QPushButton'>"
-    assert item_0.widget().text() == name
-    assert item_1.widget().text() == unc_value
-    assert item_2.widget().text() == counts
+    assert item_0.widget().text() == area_i['name']
+    assert item_1.widget().text() == '%.5f' % (area_i['unc_value'])
+    assert item_2.widget().text() == '%d' % (area_i['counts'])
     assert item_3.widget().text() == 'done'
-    
+
+
+@patch("qtpy.QtWidgets.QWidget.show")
+@pytest.mark.show_area
+def test_show_area(mock_widget_show, vessqc, uncertainty_data, area5_data,
+    areas):
+    # (20.09.2024)
+    vessqc.uncertainty = uncertainty_data
+    vessqc.areas = areas
+
+    # In order to be able to define the value "name = self.sender().text()",
+    # we take the way via the function self.btn_uncertainty()
+    vessqc.btn_uncertainty()
+    popup_window = vessqc.popup_window
+    vbox_layout = popup_window.layout()
+    scroll_area = vbox_layout.itemAt(0).widget()
+    group_box = scroll_area.widget()
+    grid_layout = group_box.layout()
+    button5 = grid_layout.itemAtPosition(5, 0).widget()
+
+    # Here I simulate a mouse click on the "Area 5" button
+    QTest.mouseClick(button5, Qt.LeftButton)
+
+    assert areas[5]['centroid'] == (15, 15, 15)
+    assert vessqc.viewer.dims.current_step == (15, 15, 15)
+    assert vessqc.viewer.camera.center == (15, 15, 15)
+
+    if any(layer.name == 'Area 5' and isinstance(layer, napari.layers.Labels)
+        for layer in vessqc.viewer.layers):
+        layer = vessqc.viewer.layers['Area 5']
+        assert layer.name == 'Area 5'
+        assert layer.selected_label == 6
+        assert np.array_equal(layer.data, area5_data)
+    else:
+        assert False
+
+    # 2nd click ob the "Area 5" button
+    QTest.mouseClick(button5, Qt.LeftButton)
+
+    if any(layer.name == 'Area 5' and isinstance(layer, napari.layers.Labels)
+        for layer in vessqc.viewer.layers):
+        layer = vessqc.viewer.layers['Area 5']
+        assert layer.name == 'Area 5'
+    else:
+        assert False
