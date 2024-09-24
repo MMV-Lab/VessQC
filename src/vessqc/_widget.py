@@ -71,7 +71,7 @@ class VessQC(QWidget):
         label3.setFont(font)
 
         btnUncertainty = QPushButton('Load uncertainty list')
-        btnUncertainty.clicked.connect(self.btn_uncertainty)
+        btnUncertainty.clicked.connect(self.show_popup_window)
 
         btnSave = QPushButton('Save intermediate curation')
         btnSave.clicked.connect(self.btn_save)
@@ -219,7 +219,20 @@ class VessQC(QWidget):
         if self.areas == [None]:
             self.build_areas()                  # define areas
 
-    def btn_uncertainty(self):
+    def build_areas(self):
+        # (09.08.2024)
+        # Define areas that correspond to values of equal uncertainty
+        unc_values, counts = np.unique(self.uncertainty, return_counts=True)
+        n = len(unc_values)
+        self.areas = [None]                     # List of dictionaries
+
+        for i in range(1, n):
+            area_i = {'name': 'Area %d' % (i), 'unc_value': unc_values[i],
+                'counts': counts[i], 'centroid': (), 'where': None,
+                'done': False}
+            self.areas.append(area_i)
+
+    def show_popup_window(self):
         # Define a pop-up window for the uncertainty list
         # (24.05.2024)
         self.popup_window = QWidget()
@@ -278,6 +291,30 @@ class VessQC(QWidget):
         # Show the pop-up window
         self.popup_window.show()
         
+    def new_entry(self, area_i, grid_layout, i):
+        # (13.08.2024) New entry for 'Area n'
+        name = area_i['name']
+        done = area_i['done']
+        button1 = QPushButton(name)
+        button1.clicked.connect(self.btn_show_area)
+        unc_value = '%.5f' % (area_i['unc_value'])
+        label1 = QLabel(unc_value)
+        counts = '%d' % (area_i['counts'])
+        label2 = QLabel(counts)
+
+        if done:
+            button1.setEnabled(False)       # enable button for treated areas
+            button2 = QPushButton('restore', objectName=name)
+            button2.clicked.connect(self.btn_restore)
+        else:
+            button2 = QPushButton('done', objectName=name)
+            button2.clicked.connect(self.btn_done)
+
+        grid_layout.addWidget(button1, i, 0)
+        grid_layout.addWidget(label1, i, 1)
+        grid_layout.addWidget(label2, i, 2)
+        grid_layout.addWidget(button2, i, 3)
+
     def btn_show_area(self):
         # (29.05.2024)
         name = self.sender().text()         # text of the button: "Area n"
@@ -325,14 +362,49 @@ class VessQC(QWidget):
         self.compare_and_transfer(name)         # transfer of data
         layer = self.viewer.layers[name]
         self.viewer.layers.remove(layer)        # delete the layer 'Area n'
-        self.btn_uncertainty()                  # open a new pop-up window
+        self.show_popup_window()                # open a new pop-up window
 
     def btn_restore(self):
         # (19.07.2024)
         name = self.sender().objectName()
         index = int(name[5:])
         self.areas[index]['done'] = False
-        self.btn_uncertainty()
+        self.show_popup_window()
+
+    def compare_and_transfer(self, name):
+        # (09.08.2024) Compare old and new data and transfer the changes to
+        # the prediction and uncertainty data
+        index = int(name[5:])                   # n = number of the area
+        area_i = self.areas[index]              # selected area
+
+        # If a label layer with this name exists:
+        if any(layer.name == name and
+            isinstance(layer, napari.layers.Labels)
+            for layer in self.viewer.layers):
+            # search for the changed data points
+            new_data = self.viewer.layers[name].data
+
+            # compare new and old data
+            where1 = area_i['where']            # recall the old values
+            old_data = np.zeros(self.uncertainty.shape, dtype=np.int8)
+            old_data[where1] = index + 1
+            delta = new_data - old_data
+
+            ind_new = np.where(delta > 0)       # new data points
+            ind_del = np.where(delta < 0)       # deleted data points
+
+            # transfer the changes to the prediction layer
+            self.prediction[ind_new] = 1
+            self.prediction[ind_del] = 0
+            self.viewer.layers['Prediction'].data = self.prediction
+
+            # transfer the changes to the uncertainty layer
+            unc_value = area_i['unc_value']
+            self.uncertainty[ind_new] = unc_value
+            self.uncertainty[ind_del] = 0.0
+            self.viewer.layers['Uncertainty'].data = self.uncertainty
+
+            area_i['done'] = True               # mark this area as treated
 
     def btn_save(self):
         # (26.07.2024)
@@ -499,78 +571,6 @@ class VessQC(QWidget):
         else:
             print('This is not an image or label layer!')
         print()
-
-    def new_entry(self, area_i, grid_layout, i):
-        # (13.08.2024) New entry for 'Area n'
-        name = area_i['name']
-        done = area_i['done']
-        button1 = QPushButton(name)
-        button1.clicked.connect(self.btn_show_area)
-        unc_value = '%.5f' % (area_i['unc_value'])
-        label1 = QLabel(unc_value)
-        counts = '%d' % (area_i['counts'])
-        label2 = QLabel(counts)
-
-        if done:
-            button1.setEnabled(False)       # enable button for treated areas
-            button2 = QPushButton('restore', objectName=name)
-            button2.clicked.connect(self.btn_restore)
-        else:
-            button2 = QPushButton('done', objectName=name)
-            button2.clicked.connect(self.btn_done)
-
-        grid_layout.addWidget(button1, i, 0)
-        grid_layout.addWidget(label1, i, 1)
-        grid_layout.addWidget(label2, i, 2)
-        grid_layout.addWidget(button2, i, 3)
-
-    def build_areas(self):
-        # (09.08.2024)
-        # Define areas that correspond to values of equal uncertainty
-        unc_values, counts = np.unique(self.uncertainty, return_counts=True)
-        n = len(unc_values)
-        self.areas = [None]                     # List of dictionaries
-
-        for i in range(1, n):
-            area_i = {'name': 'Area %d' % (i), 'unc_value': unc_values[i],
-                'counts': counts[i], 'centroid': (), 'where': None,
-                'done': False}
-            self.areas.append(area_i)
-
-    def compare_and_transfer(self, name):
-        # (09.08.2024) Compare old and new data and transfer the changes to
-        # the prediction and uncertainty data
-        index = int(name[5:])                   # n = number of the area
-        area_i = self.areas[index]              # selected area
-
-        # If a label layer with this name exists:
-        if any(layer.name == name and
-            isinstance(layer, napari.layers.Labels)
-            for layer in self.viewer.layers):
-            # search for the changed data points
-            new_data = self.viewer.layers[name].data
-
-            # compare new and old data
-            where1 = area_i['where']            # recall the old values
-            old_data = np.zeros(self.uncertainty.shape, dtype=np.int8)
-            old_data[where1] = index + 1
-            delta = new_data - old_data
-
-            ind_new = np.where(delta > 0)       # new data points
-            ind_del = np.where(delta < 0)       # deleted data points
-
-            # transfer the changes to the prediction layer
-            self.prediction[ind_new] = 1
-            self.prediction[ind_del] = 0
-            self.viewer.layers['Prediction'].data = self.prediction
-
-            # transfer the changes to the uncertainty layer
-            unc_value = area_i['unc_value']
-            self.uncertainty[ind_new] = unc_value
-            self.uncertainty[ind_del] = 0.0
-            self.viewer.layers['Uncertainty'].data = self.uncertainty
-
-            area_i['done'] = True               # mark this area as treated
 
     """
     def on_close(self):
