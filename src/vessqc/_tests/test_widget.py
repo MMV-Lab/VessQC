@@ -83,7 +83,7 @@ def test_init(vessqc):
 def test_load(mock_get_open_file_name, vessqc, image_data):
     # (12.09.2024)
     viewer = vessqc.viewer
-    vessqc.btn_load()
+    vessqc.load()
 
     mock_get_open_file_name.assert_called_once()
     assert len(viewer.layers) == 1
@@ -102,7 +102,7 @@ def test_segmentation(vessqc, prediction_data, uncertainty_data):
     vessqc.parent = ValueStorage.parent
     vessqc.is_tifffile = True
     vessqc.areas = [None]
-    vessqc.btn_segmentation()
+    vessqc.segmentation()
 
     assert len(viewer.layers) == 2
     layer0 = viewer.layers[0]
@@ -247,25 +247,29 @@ def get_grid_layout(vessqc: VessQC) -> QGridLayout:
 
 @patch("qtpy.QtWidgets.QWidget.show")
 @pytest.mark.transfer
-def test_transfer(mock_widget_show, vessqc, areas, area5_new):
+def test_transfer(mock_widget_show, vessqc, areas, prediction_data,
+    uncertainty_data, area5_new):
     # (24.09.2024)
+    vessqc.prediction = prediction_data
+    vessqc.uncertainty = uncertainty_data
+    vessqc.viewer.add_labels(vessqc.prediction, name='Prediction')
+    vessqc.viewer.add_image(vessqc.uncertainty, name='Uncertainty')
     vessqc.areas = areas
-    grid_layout = get_grid_layout(vessqc)
 
     # search for the button "Area 5"
+    grid_layout = get_grid_layout(vessqc)
     count = grid_layout.rowCount()
-    index = None
+    index1 = None
     for i in range(count):
         item0 = grid_layout.itemAtPosition(i, 0)
         if str(type(item0.widget())) == "<class 'PyQt5.QtWidgets.QPushButton'>":
-            name = item0.widget().text()
-            if name == 'Area 5':
-                index = i
-    assert index != None        # "Area 5" has been found
+            if item0.widget().text() == 'Area 5':
+                index1 = i
+    assert index1 != None       # button "Area 5" has been found
 
-    # press the button "Area 5"
-    button5 = grid_layout.itemAtPosition(index, 0).widget()
-    QTest.mouseClick(button5, Qt.LeftButton)
+    # press the button "Area 5" and call show_area()
+    button51 = grid_layout.itemAtPosition(index1, 0).widget()
+    QTest.mouseClick(button51, Qt.LeftButton)
 
     # search for the Napari layer "Area 5"
     if any(layer.name == 'Area 5' and isinstance(layer, napari.layers.Labels)
@@ -276,9 +280,31 @@ def test_transfer(mock_widget_show, vessqc, areas, area5_new):
     else:
         assert False
 
-    # press the button done in row "Area 5"
-    item3 = grid_layout.itemAtPosition(index, 3)
+    # press the button done in row "Area 5" and call compare_and_transfer()
+    item3 = grid_layout.itemAtPosition(index1, 3)
     btn_done = item3.widget()
     assert btn_done.text() == 'done'
-    #QTest.mouseClick(btn_done, Qt.LeftButton)
-    #assert False
+    QTest.mouseClick(btn_done, Qt.LeftButton)
+
+    # find the new position of the Button "Area 5"
+    grid_layout = get_grid_layout(vessqc)
+    count = grid_layout.rowCount()
+    index2 = None
+    for i in range(count):
+        item0 = grid_layout.itemAtPosition(i, 0)
+        if str(type(item0.widget())) == "<class 'PyQt5.QtWidgets.QPushButton'>":
+            if item0.widget().text() == 'Area 5':
+                index2 = i
+
+    assert index2 != None       # button "Area 5" has been found
+    assert index2 > index1      # "Area 5" is now at the end of the list
+    assert areas[5]['done'] == True
+
+    # the second button is changed from 'done' to 'restore'
+    button52 = grid_layout.itemAtPosition(index2, 3).widget()
+    assert button52.text() == 'restore'
+
+    # the Napari layer "Area 5" is removed
+    if any(layer.name == 'Area 5' and isinstance(layer, napari.layers.Labels)
+        for layer in vessqc.viewer.layers):
+        assert False

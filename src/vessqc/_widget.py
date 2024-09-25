@@ -55,10 +55,10 @@ class VessQC(QWidget):
         label1.setFont(font)
 
         btnLoad = QPushButton('Load file')
-        btnLoad.clicked.connect(self.btn_load)
+        btnLoad.clicked.connect(self.load)
 
         btnSegmentation = QPushButton('Segmentation')
-        btnSegmentation.clicked.connect(self.btn_segmentation)
+        btnSegmentation.clicked.connect(self.segmentation)
 
         # Test output
         btnInfo = QPushButton('Info')
@@ -77,13 +77,13 @@ class VessQC(QWidget):
         btnSave.clicked.connect(self.btn_save)
 
         btnReload = QPushButton('Load saved curation')
-        btnReload.clicked.connect(self.btn_reload)
+        btnReload.clicked.connect(self.reload)
 
         label4 = QLabel('_______________')
         label4.setAlignment(Qt.AlignHCenter)
 
         btnFinalSeg = QPushButton('Generate final segmentation')
-        btnFinalSeg.clicked.connect(self.btn_final_seg)
+        btnFinalSeg.clicked.connect(self.final_segmentation)
 
         cbxSaveUnc = QCheckBox('Save uncertainty')
         cbxSaveUnc.stateChanged.connect(self.cbx_save_unc)
@@ -116,7 +116,7 @@ class VessQC(QWidget):
                 lambda event: wrapper(self, func, event)
         """
 
-    def btn_load(self):
+    def load(self):
         # (23.05.2024);
         self.areas = [None]
 
@@ -168,7 +168,7 @@ class VessQC(QWidget):
 
         self.viewer.add_image(self.image, name=name1)   # Show the image
 
-    def btn_segmentation(self):
+    def segmentation(self):
         # (23.05.2024)
         if self.suffix == '.nii':       # The file type depends on the extension
             prediction_file  = self.parent / 'Prediction.nii'
@@ -296,7 +296,7 @@ class VessQC(QWidget):
         name = area_i['name']
         done = area_i['done']
         button1 = QPushButton(name)
-        button1.clicked.connect(self.btn_show_area)
+        button1.clicked.connect(self.show_area)
         unc_value = '%.5f' % (area_i['unc_value'])
         label1 = QLabel(unc_value)
         counts = '%d' % (area_i['counts'])
@@ -305,17 +305,17 @@ class VessQC(QWidget):
         if done:
             button1.setEnabled(False)       # enable button for treated areas
             button2 = QPushButton('restore', objectName=name)
-            button2.clicked.connect(self.btn_restore)
+            button2.clicked.connect(self.restore)
         else:
             button2 = QPushButton('done', objectName=name)
-            button2.clicked.connect(self.btn_done)
+            button2.clicked.connect(self.done)
 
         grid_layout.addWidget(button1, i, 0)
         grid_layout.addWidget(label1, i, 1)
         grid_layout.addWidget(label2, i, 2)
         grid_layout.addWidget(button2, i, 3)
 
-    def btn_show_area(self):
+    def show_area(self):
         # (29.05.2024)
         name = self.sender().text()         # text of the button: "Area n"
         index = int(name[5:])               # n = number of the area
@@ -356,7 +356,7 @@ class VessQC(QWidget):
         # Change to the matching color
         layer.selected_label = index + 1
 
-    def btn_done(self):
+    def done(self):
         # (18.07.2024)
         name = self.sender().objectName()       # name of the object: 'Area n'
         self.compare_and_transfer(name)         # transfer of data
@@ -364,7 +364,7 @@ class VessQC(QWidget):
         self.viewer.layers.remove(layer)        # delete the layer 'Area n'
         self.show_popup_window()                # open a new pop-up window
 
-    def btn_restore(self):
+    def restore(self):
         # (19.07.2024)
         name = self.sender().objectName()
         index = int(name[5:])
@@ -386,7 +386,7 @@ class VessQC(QWidget):
 
             # compare new and old data
             where1 = area_i['where']            # recall the old values
-            old_data = np.zeros(self.uncertainty.shape, dtype=np.int8)
+            old_data = np.zeros(new_data.shape, dtype=np.int8)
             old_data[where1] = index + 1
             delta = new_data - old_data
 
@@ -436,7 +436,7 @@ class VessQC(QWidget):
             if 'file' in locals() and file:
                 file.close()
 
-    def btn_reload(self):
+    def reload(self):
         # (30.07.2024)
         # 1st: read the prediction data
         filename = self.parent / '_Prediction.npy'
@@ -484,7 +484,7 @@ class VessQC(QWidget):
         if self.areas == [None]:
             self.build_areas()          # define areas
 
-    def btn_final_seg(self):
+    def final_segmentation(self):
         # (13.08.2024)
         # 1st: close all open area layers
         lst = [layer for layer in self.viewer.layers
