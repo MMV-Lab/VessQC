@@ -5,6 +5,7 @@ import qtpy
 from qtpy.QtWidgets import QGridLayout
 from qtpy.QtTest import QTest
 from qtpy.QtCore import Qt
+from unittest import mock
 from unittest.mock import patch
 from pathlib import Path
 from tifffile import imread
@@ -262,8 +263,8 @@ def test_transfer(mock_widget_show, vessqc, prediction_data, prediction_new_data
 
     # search for the row with button "Area 5"
     grid_layout = get_grid_layout(vessqc)
-    n = grid_layout.rowCount()
     index1 = None
+    n = grid_layout.rowCount()
     for i in range(n):
         widget0 = grid_layout.itemAtPosition(i, 0).widget()
         if str(type(widget0)) == "<class 'PyQt5.QtWidgets.QPushButton'>" and \
@@ -297,10 +298,15 @@ def test_transfer(mock_widget_show, vessqc, prediction_data, prediction_new_data
     assert np.array_equal(unc_layer.data, uncertainty_new_data)
     assert areas[5]['done'] == True
 
+    # the Napari layer "Area 5" is removed
+    if any(layer.name == 'Area 5' and isinstance(layer, napari.layers.Labels)
+        for layer in vessqc.viewer.layers):
+        assert False
+
     # find the new row of the button "Area 5"
     grid_layout = get_grid_layout(vessqc)
-    n = grid_layout.rowCount()
     index2 = None
+    n = grid_layout.rowCount()
     for i in range(n):
         widget0 = grid_layout.itemAtPosition(i, 0).widget()
         if str(type(widget0)) == "<class 'PyQt5.QtWidgets.QPushButton'>" and \
@@ -310,12 +316,7 @@ def test_transfer(mock_widget_show, vessqc, prediction_data, prediction_new_data
 
     assert index2 != None       # button "Area 5" has been found
     assert index2 > index1      # "Area 5" is now at the end of the list
-    assert widget0.isEnabled() == False     # the button is inactive
-
-    # the Napari layer "Area 5" is removed
-    if any(layer.name == 'Area 5' and isinstance(layer, napari.layers.Labels)
-        for layer in vessqc.viewer.layers):
-        assert False
+    assert widget0.isEnabled() == False     # the button "Area 5" is inactive
 
     # press the button restore to call the function restore()
     widget3 = grid_layout.itemAtPosition(index2, 3).widget()
@@ -324,3 +325,60 @@ def test_transfer(mock_widget_show, vessqc, prediction_data, prediction_new_data
     QTest.mouseClick(widget3, Qt.LeftButton)
 
     assert areas[5]['done'] == False
+
+    # find the new row of the button "Area 5"
+    grid_layout = get_grid_layout(vessqc)
+    index3 = None
+    n = grid_layout.rowCount()
+    for i in range(n):
+        widget0 = grid_layout.itemAtPosition(i, 0).widget()
+        if str(type(widget0)) == "<class 'PyQt5.QtWidgets.QPushButton'>" and \
+            widget0.text() == 'Area 5':
+            index3 = i
+            break
+
+    assert index3 != None       # button "Area 5" has been found
+    assert index3 < index2      # "Area 5" is now in the upper part of the list
+    assert index3 == index1
+    assert widget0.isEnabled() == True     # the button "Area 5" is active
+
+    # check the label of the right button
+    widget3 = grid_layout.itemAtPosition(index3, 3).widget()
+    assert str(type(widget3)) == "<class 'PyQt5.QtWidgets.QPushButton'>"
+    assert widget3.text() == 'done'
+
+
+@pytest.mark.save
+def test_save(tmp_path, vessqc, prediction_data, uncertainty_data):
+    # (27.09.2024)
+    pred_layer = vessqc.viewer.add_labels(prediction_data, name='Prediction')
+    unc_layer =  vessqc.viewer.add_image(uncertainty_data, name='Uncertainty')
+    vessqc.parent = tmp_path
+    vessqc.btn_save()
+
+    filename = tmp_path / '_Prediction.npy'
+    loaded_data = np.load(str(filename))
+    np.testing.assert_array_equal(loaded_data, prediction_data)
+
+    filename = tmp_path / '_Uncertainty.npy'
+    loaded_data = np.load(str(filename))
+    np.testing.assert_array_equal(loaded_data, uncertainty_data)
+
+
+@pytest.mark.save_with_exception
+def test_save_with_exception(tmp_path, vessqc, prediction_data,
+    uncertainty_data):
+    # (27.09.2024)
+    pred_layer = vessqc.viewer.add_labels(prediction_data, name='Prediction')
+    unc_layer =  vessqc.viewer.add_image(uncertainty_data, name='Uncertainty')
+    vessqc.parent = tmp_path
+
+    # simulate an exception when opening the file
+    with mock.patch("builtins.open", side_effect=OSError("File error")):
+        vessqc.btn_save()
+
+    filename = tmp_path / '_Prediction.npy'
+    assert not filename.exists()
+
+    filename = tmp_path / '_Uncertainty.npy'
+    assert not filename.exists()
