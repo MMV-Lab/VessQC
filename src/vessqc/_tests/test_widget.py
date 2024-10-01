@@ -50,6 +50,7 @@ def uncertainty_data():
 
 @pytest.fixture
 def uncertainty_new_data():
+    # (26.09.2024)
     filename = ValueStorage.parent / 'Uncertainty_new.tif'
     return imread(filename)
 
@@ -72,6 +73,9 @@ def areas(vessqc, uncertainty_data):
     vessqc.build_areas()
     return vessqc.areas
 
+@pytest.fixture
+def output_file(tmp_path):
+    return str(tmp_path / 'Prediction.tif')
 
 @pytest.mark.init
 def test_init(vessqc):
@@ -85,12 +89,12 @@ def test_init(vessqc):
 @patch("qtpy.QtWidgets.QFileDialog.getOpenFileName",
     return_value=(ValueStorage.image_path, None))
 @pytest.mark.load
-def test_load(mock_get_open_file_name, vessqc, image_data):
+def test_load(mock_open_file_name, vessqc, image_data):
     # (12.09.2024)
     viewer = vessqc.viewer
     vessqc.load()
 
-    mock_get_open_file_name.assert_called_once()
+    mock_open_file_name.assert_called_once()
     assert len(viewer.layers) == 1
     layer = viewer.layers[0]
     assert layer.name == 'Image'
@@ -382,3 +386,82 @@ def test_save_with_exception(tmp_path, vessqc, prediction_data,
 
     filename = tmp_path / '_Uncertainty.npy'
     assert not filename.exists()
+
+
+@pytest.mark.reload
+def test_reload(tmp_path, vessqc, prediction_data, uncertainty_data):
+    # (01.10.2024)
+    vessqc.parent = tmp_path
+    vessqc.areas = [None]
+
+    filename = tmp_path / '_Prediction.npy'
+    try:
+        file = open(filename, 'wb')
+        np.save(file, prediction_data)
+    except BaseException as error:
+        print('Error:', error)
+        assert False
+    finally:
+        if 'file' in locals() and file:
+            file.close()
+
+    filename = tmp_path / '_Uncertainty.npy'
+    try:
+        file = open(filename, 'wb')
+        np.save(file, uncertainty_data)
+    except BaseException as error:
+        print('Error:', error)
+        assert False
+    finally:
+        if 'file' in locals() and file:
+            file.close()
+
+    vessqc.reload()
+
+    # test vessqc.areas
+    assert len(vessqc.areas) == 10
+    assert vessqc.areas[1]['name'] == 'Area 1'
+    assert vessqc.areas[2]['unc_value'] == np.float32(0.2)
+    assert vessqc.areas[3]['counts'] == 34
+    assert vessqc.areas[4]['centroid'] == ()
+    assert vessqc.areas[5]['where'] == None
+    assert vessqc.areas[6]['done'] == False
+
+    # test the content of the Napari layers
+    assert len(vessqc.viewer.layers) == 2
+    layer0 = vessqc.viewer.layers[0]
+    layer1 = vessqc.viewer.layers[1]
+    assert layer0.name == 'Prediction'
+    assert layer1.name == 'Uncertainty'
+    np.testing.assert_array_equal(layer0.data, prediction_data)
+    np.testing.assert_array_equal(layer1.data, uncertainty_data)
+
+
+@pytest.mark.reload_with_exception
+def test_reload_with_exception(tmp_path, vessqc):
+    # (01.10.2024)
+    vessqc.parent = tmp_path
+    vessqc.areas = [None]
+
+    # simulate an exception when opening the file
+    with mock.patch("builtins.open", side_effect=OSError("File error")):
+        vessqc.reload()
+
+    assert len(vessqc.viewer.layers) == 0
+    assert vessqc.areas == [None]
+
+
+@pytest.mark.final_segmentation
+def test_final_segmentation(tmp_path, vessqc, prediction_data,
+    uncertainty_data, output_file):
+    # (01.10.2024)
+    pred_layer = vessqc.viewer.add_labels(prediction_data, name='Prediction')
+    unc_layer =  vessqc.viewer.add_image(uncertainty_data, name='Uncertainty')
+    vessqc.parent = tmp_path
+    vessqc.save_uncertainty = True
+
+    # call the function final_segmentation()
+    with patch("qtpy.QtWidgets.QFileDialog.getSaveFileName",
+        return_value=(output_file, None)):
+        vessqc.final_segmentation()
+    

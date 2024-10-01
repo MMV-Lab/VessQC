@@ -12,9 +12,7 @@ import napari
 import SimpleITK as sitk
 import time
 import warnings
-from tifffile import imread
-# from bioio import BioImage
-from bioio.writers import OmeTiffWriter
+from tifffile import imread, imwrite
 from scipy import ndimage
 from pathlib import Path
 from qtpy.QtCore import QSize, Qt
@@ -447,6 +445,7 @@ class VessQC(QWidget):
             self.prediction = np.load(file)
         except BaseException as error:
             print('Error:', error)
+            return
         finally:
             if 'file' in locals() and file:
                 file.close()
@@ -468,6 +467,7 @@ class VessQC(QWidget):
             self.uncertainty = np.load(file)
         except BaseException as error:
             print('Error:', error)
+            return
         finally:
             if 'file' in locals() and file:
                 file.close()
@@ -501,10 +501,8 @@ class VessQC(QWidget):
             self.popup_window.close()
         if hasattr(self, 'parent'):
             default_name = str(self.parent / 'Prediction.tif')
-            unc_name =     str(self.parent / 'Uncertainty.tif')
         else:
             default_name = 'Prediction.tif'
-            unc_name =     'Uncertainty.tif'
 
         filter1 = "TIFF files (*.tif *.tiff);;All files (*.*)"
         filename, _ = QFileDialog.getSaveFileName(self, 'Prediction file', \
@@ -517,19 +515,20 @@ class VessQC(QWidget):
             print('Save', filename)
             layer = self.viewer.layers['Prediction']
             data = layer.data
-
             try:
-                OmeTiffWriter.save(data, filename, dim_order='ZYX')
+                imwrite(filename, data)
             except BaseException as error:
                 print('Error:', error)
 
         if self.save_uncertainty and 'Uncertainty' in self.viewer.layers:
+            path = Path(filename)
+            parent = path.parent
+            unc_name = str(parent.joinpath('Uncertainty.tif'))
             print('Save', unc_name)
             layer = self.viewer.layers['Uncertainty']
             data = layer.data
-
             try:
-                OmeTiffWriter.save(data, unc_name, dim_order='ZYX')
+                imwrite(unc_name, data)
             except BaseException as error:
                 print('Error:', error)
 
