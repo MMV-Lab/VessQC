@@ -1,3 +1,6 @@
+# Copyright © Peter Lampen, ISAS Dortmund, 2024
+# (12.09.2024)
+
 import pytest
 import napari
 import numpy as np
@@ -8,7 +11,7 @@ from qtpy.QtCore import Qt
 from unittest import mock
 from unittest.mock import patch
 from pathlib import Path
-from tifffile import imread
+from tifffile import imread, imwrite
 from vessqc._widget import VessQC
 # capsys is a pytest fixture that captures stdout and stderr output streams
 
@@ -369,8 +372,8 @@ def test_save(tmp_path, vessqc, prediction_data, uncertainty_data):
     np.testing.assert_array_equal(loaded_data, uncertainty_data)
 
 
-@pytest.mark.save_with_exception
-def test_save_with_exception(tmp_path, vessqc, prediction_data,
+@pytest.mark.save_with_exc
+def test_save_with_exc(tmp_path, vessqc, prediction_data,
     uncertainty_data):
     # (27.09.2024)
     pred_layer = vessqc.viewer.add_labels(prediction_data, name='Prediction')
@@ -437,8 +440,8 @@ def test_reload(tmp_path, vessqc, prediction_data, uncertainty_data):
     np.testing.assert_array_equal(layer1.data, uncertainty_data)
 
 
-@pytest.mark.reload_with_exception
-def test_reload_with_exception(tmp_path, vessqc):
+@pytest.mark.reload_with_exc
+def test_reload_with_exc(tmp_path, vessqc):
     # (01.10.2024)
     vessqc.parent = tmp_path
     vessqc.areas = [None]
@@ -464,4 +467,41 @@ def test_final_segmentation(tmp_path, vessqc, prediction_data,
     with patch("qtpy.QtWidgets.QFileDialog.getSaveFileName",
         return_value=(output_file, None)):
         vessqc.final_segmentation()
-    
+
+    try:
+        filename = tmp_path / 'Prediction.tif'
+        loaded_data = imread(filename)
+        np.testing.assert_array_equal(loaded_data, prediction_data)
+    except BaseException as error:
+        print('Error:', error)
+        assert False
+
+    try:
+        filename = tmp_path / 'Uncertainty.tif'
+        loaded_data = imread(filename)
+        np.testing.assert_array_equal(loaded_data, uncertainty_data)
+    except BaseException as error:
+        print('Error:', error)
+        assert False
+
+
+@patch("vessqc._widget.imwrite", side_effect=BaseException("File error"))
+@pytest.mark.final_seg_with_exc
+def test_final_seg_with_exc(mock_imwrite, tmp_path, vessqc, prediction_data,
+    uncertainty_data, output_file):
+    # (02.10.2024)
+    pred_layer = vessqc.viewer.add_labels(prediction_data, name='Prediction')
+    unc_layer =  vessqc.viewer.add_image(uncertainty_data, name='Uncertainty')
+    vessqc.parent = tmp_path
+    vessqc.save_uncertainty = True
+
+    # call the function final_segmentation()
+    with patch("qtpy.QtWidgets.QFileDialog.getSaveFileName",
+        return_value=(output_file, None)):
+        vessqc.final_segmentation()
+
+    filename = tmp_path / 'Prediction.tif'
+    assert not filename.exists()
+
+    filename = tmp_path / 'Uncertainty.tif'
+    assert not filename.exists()

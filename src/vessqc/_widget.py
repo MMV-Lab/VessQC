@@ -149,8 +149,6 @@ class VessQC(QWidget):
         elif self.is_tifffile:
             print('Load', image_path)
             try:
-                # bioio_image = BioImage(image_path) # reader=bioio_tifffile.Reader
-                # self.image = bioio_image.get_image_data("ZYX", T=0, C=0)
                 self.image = imread(image_path)
             except BaseException as error:
                 print('Error:', error)
@@ -513,24 +511,24 @@ class VessQC(QWidget):
             return
         elif 'Prediction' in self.viewer.layers:
             print('Save', filename)
-            layer = self.viewer.layers['Prediction']
-            data = layer.data
+            data = self.viewer.layers['Prediction'].data
             try:
                 imwrite(filename, data)
             except BaseException as error:
                 print('Error:', error)
+                return
 
         if self.save_uncertainty and 'Uncertainty' in self.viewer.layers:
             path = Path(filename)
             parent = path.parent
             unc_name = str(parent.joinpath('Uncertainty.tif'))
             print('Save', unc_name)
-            layer = self.viewer.layers['Uncertainty']
-            data = layer.data
+            data = self.viewer.layers['Uncertainty'].data
             try:
                 imwrite(unc_name, data)
             except BaseException as error:
                 print('Error:', error)
+                return
 
     def cbx_save_unc(self, state):
         if state == Qt.Checked:
@@ -538,7 +536,7 @@ class VessQC(QWidget):
         else:
             self.save_uncertainty = False
 
-    def btn_info(self):
+    def btn_info(self):     # pragma: no cover
         # (25.07.2024)
         layer = self.viewer.layers.selection.active
         print('layer:', layer.name)
