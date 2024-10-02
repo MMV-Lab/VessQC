@@ -12,10 +12,7 @@ import napari
 import SimpleITK as sitk
 import time
 import warnings
-from tifffile import imread
-# from bioio import BioImage
-from bioio.writers import OmeTiffWriter
-# import bioio_tifffile
+from tifffile import imread, imwrite
 from scipy import ndimage
 from pathlib import Path
 from qtpy.QtCore import QSize, Qt
@@ -56,10 +53,10 @@ class VessQC(QWidget):
         label1.setFont(font)
 
         btnLoad = QPushButton('Load file')
-        btnLoad.clicked.connect(self.btn_load)
+        btnLoad.clicked.connect(self.load)
 
         btnSegmentation = QPushButton('Segmentation')
-        btnSegmentation.clicked.connect(self.btn_segmentation)
+        btnSegmentation.clicked.connect(self.segmentation)
 
         # Test output
         btnInfo = QPushButton('Info')
@@ -72,19 +69,19 @@ class VessQC(QWidget):
         label3.setFont(font)
 
         btnUncertainty = QPushButton('Load uncertainty list')
-        btnUncertainty.clicked.connect(self.btn_uncertainty)
+        btnUncertainty.clicked.connect(self.show_popup_window)
 
         btnSave = QPushButton('Save intermediate curation')
         btnSave.clicked.connect(self.btn_save)
 
         btnReload = QPushButton('Load saved curation')
-        btnReload.clicked.connect(self.btn_reload)
+        btnReload.clicked.connect(self.reload)
 
         label4 = QLabel('_______________')
         label4.setAlignment(Qt.AlignHCenter)
 
         btnFinalSeg = QPushButton('Generate final segmentation')
-        btnFinalSeg.clicked.connect(self.btn_final_seg)
+        btnFinalSeg.clicked.connect(self.final_segmentation)
 
         cbxSaveUnc = QCheckBox('Save uncertainty')
         cbxSaveUnc.stateChanged.connect(self.cbx_save_unc)
@@ -117,7 +114,7 @@ class VessQC(QWidget):
                 lambda event: wrapper(self, func, event)
         """
 
-    def btn_load(self):
+    def load(self):
         # (23.05.2024);
         self.areas = [None]
 
@@ -152,8 +149,6 @@ class VessQC(QWidget):
         elif self.is_tifffile:
             print('Load', image_path)
             try:
-                # bioio_image = BioImage(image_path) # reader=bioio_tifffile.Reader
-                # self.image = bioio_image.get_image_data("ZYX", T=0, C=0)
                 self.image = imread(image_path)
             except BaseException as error:
                 print('Error:', error)
@@ -169,7 +164,7 @@ class VessQC(QWidget):
 
         self.viewer.add_image(self.image, name=name1)   # Show the image
 
-    def btn_segmentation(self):
+    def segmentation(self):
         # (23.05.2024)
         if self.suffix == '.nii':       # The file type depends on the extension
             prediction_file  = self.parent / 'Prediction.nii'
@@ -220,7 +215,20 @@ class VessQC(QWidget):
         if self.areas == [None]:
             self.build_areas()                  # define areas
 
-    def btn_uncertainty(self):
+    def build_areas(self):
+        # (09.08.2024)
+        # Define areas that correspond to values of equal uncertainty
+        unc_values, counts = np.unique(self.uncertainty, return_counts=True)
+        n = len(unc_values)
+        self.areas = [None]                     # List of dictionaries
+
+        for i in range(1, n):
+            area_i = {'name': 'Area %d' % (i), 'unc_value': unc_values[i],
+                'counts': counts[i], 'centroid': (), 'where': None,
+                'done': False}
+            self.areas.append(area_i)
+
+    def show_popup_window(self):
         # Define a pop-up window for the uncertainty list
         # (24.05.2024)
         self.popup_window = QWidget()
@@ -235,7 +243,7 @@ class VessQC(QWidget):
         vbox_layout.addWidget(scroll_area)
 
         # Define a group box inside the scroll area
-        group_box = QGroupBox('Uncertainty List')
+        group_box = QGroupBox('Uncertainty list')
         grid_layout = QGridLayout()
         group_box.setLayout(grid_layout)
         scroll_area.setWidget(group_box)
@@ -279,7 +287,31 @@ class VessQC(QWidget):
         # Show the pop-up window
         self.popup_window.show()
         
-    def btn_show_area(self):
+    def new_entry(self, area_i, grid_layout, i):
+        # (13.08.2024) New entry for 'Area n'
+        name = area_i['name']
+        done = area_i['done']
+        button1 = QPushButton(name)
+        button1.clicked.connect(self.show_area)
+        unc_value = '%.5f' % (area_i['unc_value'])
+        label1 = QLabel(unc_value)
+        counts = '%d' % (area_i['counts'])
+        label2 = QLabel(counts)
+
+        if done:
+            button1.setEnabled(False)       # enable button for treated areas
+            button2 = QPushButton('restore', objectName=name)
+            button2.clicked.connect(self.restore)
+        else:
+            button2 = QPushButton('done', objectName=name)
+            button2.clicked.connect(self.done)
+
+        grid_layout.addWidget(button1, i, 0)
+        grid_layout.addWidget(label1, i, 1)
+        grid_layout.addWidget(label2, i, 2)
+        grid_layout.addWidget(button2, i, 3)
+
+    def show_area(self):
         # (29.05.2024)
         name = self.sender().text()         # text of the button: "Area n"
         index = int(name[5:])               # n = number of the area
@@ -320,20 +352,55 @@ class VessQC(QWidget):
         # Change to the matching color
         layer.selected_label = index + 1
 
-    def btn_done(self):
+    def done(self):
         # (18.07.2024)
         name = self.sender().objectName()       # name of the object: 'Area n'
         self.compare_and_transfer(name)         # transfer of data
         layer = self.viewer.layers[name]
         self.viewer.layers.remove(layer)        # delete the layer 'Area n'
-        self.btn_uncertainty()                  # open a new pop-up window
+        self.show_popup_window()                # open a new pop-up window
 
-    def btn_restore(self):
+    def restore(self):
         # (19.07.2024)
         name = self.sender().objectName()
         index = int(name[5:])
         self.areas[index]['done'] = False
-        self.btn_uncertainty()
+        self.show_popup_window()
+
+    def compare_and_transfer(self, name):
+        # (09.08.2024) Compare old and new data and transfer the changes to
+        # the prediction and uncertainty data
+        index = int(name[5:])                   # n = number of the area
+        area_i = self.areas[index]              # selected area
+
+        # If a label layer with this name exists:
+        if any(layer.name == name and
+            isinstance(layer, napari.layers.Labels)
+            for layer in self.viewer.layers):
+            # search for the changed data points
+            new_data = self.viewer.layers[name].data
+
+            # compare new and old data
+            where1 = area_i['where']            # recall the old values
+            old_data = np.zeros(new_data.shape, dtype=np.int8)
+            old_data[where1] = index + 1
+            delta = new_data - old_data
+
+            ind_new = np.where(delta > 0)       # new data points
+            ind_del = np.where(delta < 0)       # deleted data points
+
+            # transfer the changes to the prediction layer
+            self.prediction[ind_new] = 1
+            self.prediction[ind_del] = 0
+            self.viewer.layers['Prediction'].data = self.prediction
+
+            # transfer the changes to the uncertainty layer
+            unc_value = area_i['unc_value']
+            self.uncertainty[ind_new] = unc_value
+            self.uncertainty[ind_del] = 0.0
+            self.viewer.layers['Uncertainty'].data = self.uncertainty
+
+            area_i['done'] = True               # mark this area as treated
 
     def btn_save(self):
         # (26.07.2024)
@@ -365,7 +432,7 @@ class VessQC(QWidget):
             if 'file' in locals() and file:
                 file.close()
 
-    def btn_reload(self):
+    def reload(self):
         # (30.07.2024)
         # 1st: read the prediction data
         filename = self.parent / '_Prediction.npy'
@@ -376,6 +443,7 @@ class VessQC(QWidget):
             self.prediction = np.load(file)
         except BaseException as error:
             print('Error:', error)
+            return
         finally:
             if 'file' in locals() and file:
                 file.close()
@@ -397,6 +465,7 @@ class VessQC(QWidget):
             self.uncertainty = np.load(file)
         except BaseException as error:
             print('Error:', error)
+            return
         finally:
             if 'file' in locals() and file:
                 file.close()
@@ -413,7 +482,7 @@ class VessQC(QWidget):
         if self.areas == [None]:
             self.build_areas()          # define areas
 
-    def btn_final_seg(self):
+    def final_segmentation(self):
         # (13.08.2024)
         # 1st: close all open area layers
         lst = [layer for layer in self.viewer.layers
@@ -430,10 +499,8 @@ class VessQC(QWidget):
             self.popup_window.close()
         if hasattr(self, 'parent'):
             default_name = str(self.parent / 'Prediction.tif')
-            unc_name =     str(self.parent / 'Uncertainty.tif')
         else:
             default_name = 'Prediction.tif'
-            unc_name =     'Uncertainty.tif'
 
         filter1 = "TIFF files (*.tif *.tiff);;All files (*.*)"
         filename, _ = QFileDialog.getSaveFileName(self, 'Prediction file', \
@@ -444,23 +511,24 @@ class VessQC(QWidget):
             return
         elif 'Prediction' in self.viewer.layers:
             print('Save', filename)
-            layer = self.viewer.layers['Prediction']
-            data = layer.data
-
+            data = self.viewer.layers['Prediction'].data
             try:
-                OmeTiffWriter.save(data, filename, dim_order='ZYX')
+                imwrite(filename, data)
             except BaseException as error:
                 print('Error:', error)
+                return
 
         if self.save_uncertainty and 'Uncertainty' in self.viewer.layers:
+            path = Path(filename)
+            parent = path.parent
+            unc_name = str(parent.joinpath('Uncertainty.tif'))
             print('Save', unc_name)
-            layer = self.viewer.layers['Uncertainty']
-            data = layer.data
-
+            data = self.viewer.layers['Uncertainty'].data
             try:
-                OmeTiffWriter.save(data, unc_name, dim_order='ZYX')
+                imwrite(unc_name, data)
             except BaseException as error:
                 print('Error:', error)
+                return
 
     def cbx_save_unc(self, state):
         if state == Qt.Checked:
@@ -468,7 +536,7 @@ class VessQC(QWidget):
         else:
             self.save_uncertainty = False
 
-    def btn_info(self):
+    def btn_info(self):     # pragma: no cover
         # (25.07.2024)
         layer = self.viewer.layers.selection.active
         print('layer:', layer.name)
@@ -500,78 +568,6 @@ class VessQC(QWidget):
         else:
             print('This is not an image or label layer!')
         print()
-
-    def new_entry(self, area_i, grid_layout, i):
-        # (13.08.2024) New entry for 'Area n'
-        name = area_i['name']
-        done = area_i['done']
-        button1 = QPushButton(name)
-        button1.clicked.connect(self.btn_show_area)
-        unc_value = '%.5f' % (area_i['unc_value'])
-        label1 = QLabel(unc_value)
-        counts = '%d' % (area_i['counts'])
-        label2 = QLabel(counts)
-
-        if done:
-            button1.setEnabled(False)       # enable button for treated areas
-            button2 = QPushButton('restore', objectName=name)
-            button2.clicked.connect(self.btn_restore)
-        else:
-            button2 = QPushButton('done', objectName=name)
-            button2.clicked.connect(self.btn_done)
-
-        grid_layout.addWidget(button1, i, 0)
-        grid_layout.addWidget(label1, i, 1)
-        grid_layout.addWidget(label2, i, 2)
-        grid_layout.addWidget(button2, i, 3)
-
-    def build_areas(self):
-        # (09.08.2024)
-        # Define areas that correspond to values of equal uncertainty
-        unc_values, counts = np.unique(self.uncertainty, return_counts=True)
-        n = len(unc_values)
-        self.areas = [None]                     # List of dictionaries
-
-        for i in range(1, n):
-            area_i = {'name': 'Area %d' % (i), 'unc_value': unc_values[i],
-                'counts': counts[i], 'centroid': (), 'where': None,
-                'done': False}
-            self.areas.append(area_i)
-
-    def compare_and_transfer(self, name):
-        # (09.08.2024) Compare old and new data and transfer the changes to
-        # the prediction and uncertainty data
-        index = int(name[5:])                   # n = number of the area
-        area_i = self.areas[index]              # selected area
-
-        # If a label layer with this name exists:
-        if any(layer.name == name and
-            isinstance(layer, napari.layers.Labels)
-            for layer in self.viewer.layers):
-            # search for the changed data points
-            new_data = self.viewer.layers[name].data
-
-            # compare new and old data
-            where1 = area_i['where']            # recall the old values
-            old_data = np.zeros(self.uncertainty.shape, dtype=np.int8)
-            old_data[where1] = index + 1
-            delta = new_data - old_data
-
-            ind_new = np.where(delta > 0)       # new data points
-            ind_del = np.where(delta < 0)       # deleted data points
-
-            # transfer the changes to the prediction layer
-            self.prediction[ind_new] = 1
-            self.prediction[ind_del] = 0
-            self.viewer.layers['Prediction'].data = self.prediction
-
-            # transfer the changes to the uncertainty layer
-            unc_value = area_i['unc_value']
-            self.uncertainty[ind_new] = unc_value
-            self.uncertainty[ind_del] = 0.0
-            self.viewer.layers['Uncertainty'].data = self.uncertainty
-
-            area_i['done'] = True               # mark this area as treated
 
     """
     def on_close(self):
