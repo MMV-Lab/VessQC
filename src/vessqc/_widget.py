@@ -1,5 +1,14 @@
 """
-tbd.
+Module for the definition of the class VessQC
+
+Imports
+-------
+napari, numpy, pathlib.Path, qtpy.QtCore.QSize, qtpy.QtCore.QT, qtpy.QtWidgets,
+scipy.ndimage, SimpleITK, tifffile.imread, tifffile.imwrite, time, warnings
+
+Exports
+-------
+VessQC
 """
 
 # Copyright © Peter Lampen, ISAS Dortmund, 2024
@@ -37,6 +46,39 @@ if TYPE_CHECKING:
 
 
 class VessQC(QWidget):
+    """
+    Napari plugin for checking the calculation of blood vessels
+
+    Attributes
+    ----------
+    viewer : class napari.viewer
+        Napari viewer
+    start_multiple_viewer : bool
+        Flag: Call the multiple viewer and the cross widget?
+    save_uncertainty : bool
+        Flag: Save the file 'Uncertainty.tif'?
+    areas : dictionary
+        Contains information about the various areas
+    parent : string
+        Directory of data files
+    suffix : string
+        Extension of the data file (e.g '.tif')
+    is_tifffile : bool
+        Flag: Is the extension '.tif' or '.tiff'?
+    image : numpy.ndarray
+        3D array with image data
+    prediction : numpy.ndarray
+        3D array with the vessel data
+    uncertainty : numpy.ndarray
+        3D array with uncertainties
+    popup_window : QWidget
+        Pop up window with uncertainty values
+
+    Methods
+    -------
+    
+    """
+
     # your QWidget.__init__ can optionally request the napari viewer instance
     # use a type annotation of 'napari.viewer.Viewer' for any parameter
     # (03.05.2024)
