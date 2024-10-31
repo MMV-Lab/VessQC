@@ -47,24 +47,24 @@ if TYPE_CHECKING:
 
 class VessQC(QWidget):
     """
-    Napari plugin for checking the calculation of blood vessels
+    Main widget of a Napari plugin for checking the calculation of blood vessels
 
     Attributes
     ----------
     viewer : class napari.viewer
         Napari viewer
     start_multiple_viewer : bool
-        Flag: Call the multiple viewer and the cross widget?
+        Call the multiple viewer and the cross widget?
     save_uncertainty : bool
-        Flag: Save the file 'Uncertainty.tif'?
-    areas : dictionary
+        Save the file 'Uncertainty.tif'?
+    areas : dict
         Contains information about the various areas
-    parent : string
+    parent : str
         Directory of data files
-    suffix : string
+    suffix : str
         Extension of the data file (e.g '.tif')
     is_tifffile : bool
-        Flag: Is the extension '.tif' or '.tiff'?
+        Is the file extension '.tif' or '.tiff'?
     image : numpy.ndarray
         3D array with image data
     prediction : numpy.ndarray
@@ -76,7 +76,41 @@ class VessQC(QWidget):
 
     Methods
     -------
-    
+    __init__(viewer: "napari.viewer.Viewer")
+        Class constructor
+    load()
+        Call multiple viewer and cross widget, read the image file and save it
+        in an image layer
+    segmentation()
+        Read the prediction and uncertanty data and save it in a label and an
+        image layer
+    build_areas()
+        Define areas that correspond to values of equal uncertainty
+    show_popup_window()
+        Define a pop-up window for the uncertainty list
+    new_entry(area_i: dict, grid_layout: QGridLayout, i: int):
+        New entry for 'Area n' in the grid layout
+    show_area()
+        Show the data for a specific uncertanty in a new label layer
+    done()
+        Transfer data from the area to the prediction and uncertainty layer and
+        close the layer for the area
+    restore()
+        Restore the data of a specific area in the pop-up window
+    compare_and_transfer(name: str)
+        Compare old and new data of an area and transfer the changes to the
+        prediction and uncertainty data
+    btn_save()
+        Save the prediction and uncertainty data to files on drive
+    reload()
+        Read the prediction and uncertainty data from files on drive
+    final_segmentation()
+        Close all open area layers, close the pop-up window, save the prediction
+        and if applicable also the uncertainty data to files on drive
+    cbx_save_unc(state: Qt.Checked)
+        Toggle the bool variable save_uncertainty
+    btn_info()
+        Show information about the current layer
     """
 
     # your QWidget.__init__ can optionally request the napari viewer instance
@@ -329,7 +363,7 @@ class VessQC(QWidget):
         # Show the pop-up window
         self.popup_window.show()
         
-    def new_entry(self, area_i, grid_layout, i):
+    def new_entry(self, area_i: dict, grid_layout: QGridLayout, i: int):
         # (13.08.2024) New entry for 'Area n'
         name = area_i['name']
         done = area_i['done']
@@ -409,7 +443,7 @@ class VessQC(QWidget):
         self.areas[index]['done'] = False
         self.show_popup_window()
 
-    def compare_and_transfer(self, name):
+    def compare_and_transfer(self, name: str):
         # (09.08.2024) Compare old and new data and transfer the changes to
         # the prediction and uncertainty data
         index = int(name[5:])                   # n = number of the area
@@ -572,7 +606,7 @@ class VessQC(QWidget):
                 print('Error:', error)
                 return
 
-    def cbx_save_unc(self, state):
+    def cbx_save_unc(self, state: Qt.Checked):
         if state == Qt.Checked:
             self.save_uncertainty = True
         else:
