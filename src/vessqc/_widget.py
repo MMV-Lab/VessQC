@@ -1,5 +1,14 @@
 """
-tbd.
+Module for the definition of the class VessQC
+
+Imports
+-------
+napari, numpy, pathlib.Path, qtpy.QtCore.QSize, qtpy.QtCore.QT, qtpy.QtWidgets,
+scipy.ndimage, SimpleITK, tifffile.imread, tifffile.imwrite, time, warnings
+
+Exports
+-------
+VessQC
 """
 
 # Copyright © Peter Lampen, ISAS Dortmund, 2024
@@ -37,10 +46,86 @@ if TYPE_CHECKING:
 
 
 class VessQC(QWidget):
+    """
+    Main widget of a Napari plugin for checking the calculation of blood vessels
+
+    Attributes
+    ----------
+    viewer : class napari.viewer
+        Napari viewer
+    start_multiple_viewer : bool
+        Call the multiple viewer and the cross widget?
+    save_uncertainty : bool
+        Save the file 'Uncertainty.tif'?
+    areas : dict
+        Contains information about the various areas
+    parent : str
+        Directory of data files
+    suffix : str
+        Extension of the data file (e.g '.tif')
+    is_tifffile : bool
+        Is the file extension '.tif' or '.tiff'?
+    image : numpy.ndarray
+        3D array with image data
+    prediction : numpy.ndarray
+        3D array with the vessel data
+    uncertainty : numpy.ndarray
+        3D array with uncertainties
+    popup_window : QWidget
+        Pop up window with uncertainty values
+
+    Methods
+    -------
+    __init__(viewer: "napari.viewer.Viewer")
+        Class constructor
+    load()
+        Call multiple viewer widget  and cross widget, read the image file and
+        save it in an image layer
+    segmentation()
+        Read the prediction and uncertanty data and save it in a label and an
+        image layer
+    build_areas()
+        Define areas that correspond to values of equal uncertainty
+    show_popup_window()
+        Define a pop-up window for the uncertainty list
+    new_entry(area_i: dict, grid_layout: QGridLayout, i: int):
+        New entry for 'Area n' in the grid layout
+    show_area()
+        Show the data for a specific uncertanty in a new label layer
+    done()
+        Transfer data from the area to the prediction and uncertainty layer and
+        close the layer for the area
+    restore()
+        Restore the data of a specific area in the pop-up window
+    compare_and_transfer(name: str)
+        Compare old and new data of an area and transfer the changes to the
+        prediction and uncertainty data
+    btn_save()
+        Save the prediction and uncertainty data to files on drive
+    reload()
+        Read the prediction and uncertainty data from files on drive
+    final_segmentation()
+        Close all open area layers, close the pop-up window, save the prediction
+        and if applicable also the uncertainty data to files on drive
+    cbx_save_unc(state: Qt.Checked)
+        Toggle the bool variable save_uncertainty
+    btn_info()
+        Show information about the current layer
+    """
+
     # your QWidget.__init__ can optionally request the napari viewer instance
     # use a type annotation of 'napari.viewer.Viewer' for any parameter
     # (03.05.2024)
     def __init__(self, viewer: "napari.viewer.Viewer"):
+        """
+        Class constructor
+
+        Parameter
+        ---------
+        viewer : widget
+            napari.viewer
+        """
+
         super().__init__()
         self.viewer = viewer
         self.start_multiple_viewer = True
@@ -115,6 +200,11 @@ class VessQC(QWidget):
         """
 
     def load(self):
+        """
+        Call multiple viewer widget and cross widget, read the image file and
+        save it in an image layer
+        """
+
         # (23.05.2024);
         self.areas = [None]
 
@@ -165,6 +255,11 @@ class VessQC(QWidget):
         self.viewer.add_image(self.image, name=name1)   # Show the image
 
     def segmentation(self):
+        """
+        Read the prediction and uncertanty data and save it in a label and an
+        image layer
+        """
+
         # (23.05.2024)
         if self.suffix == '.nii':       # The file type depends on the extension
             prediction_file  = self.parent / 'Prediction.nii'
@@ -216,8 +311,9 @@ class VessQC(QWidget):
             self.build_areas()                  # define areas
 
     def build_areas(self):
+        """ Define areas that correspond to values of equal uncertainty """
+
         # (09.08.2024)
-        # Define areas that correspond to values of equal uncertainty
         unc_values, counts = np.unique(self.uncertainty, return_counts=True)
         n = len(unc_values)
         self.areas = [None]                     # List of dictionaries
@@ -229,7 +325,8 @@ class VessQC(QWidget):
             self.areas.append(area_i)
 
     def show_popup_window(self):
-        # Define a pop-up window for the uncertainty list
+        """ Define a pop-up window for the uncertainty list """
+
         # (24.05.2024)
         self.popup_window = QWidget()
         self.popup_window.setWindowTitle('napari')
@@ -287,8 +384,22 @@ class VessQC(QWidget):
         # Show the pop-up window
         self.popup_window.show()
         
-    def new_entry(self, area_i, grid_layout, i):
-        # (13.08.2024) New entry for 'Area n'
+    def new_entry(self, area_i: dict, grid_layout: QGridLayout, i: int):
+        """
+        New entry for 'Area n' in the grid layout
+
+        Parameters
+        ----------
+        area_i : dict
+            name, unc_value, counts, centroid, where and done for a specific
+            area
+        grid_layout : QGridLayout
+            Layout for a QGroupBox
+        i : int
+            Index in the grid_layout
+        """
+
+        # (13.08.2024)
         name = area_i['name']
         done = area_i['done']
         button1 = QPushButton(name)
@@ -312,6 +423,8 @@ class VessQC(QWidget):
         grid_layout.addWidget(button2, i, 3)
 
     def show_area(self):
+        """ Show the data for a specific uncertanty in a new label layer """
+
         # (29.05.2024)
         name = self.sender().text()         # text of the button: "Area n"
         index = int(name[5:])               # n = number of the area
@@ -353,6 +466,11 @@ class VessQC(QWidget):
         layer.selected_label = index + 1
 
     def done(self):
+        """
+        Transfer data from the area to the prediction and uncertainty layer and
+        close the layer for the area
+        """
+
         # (18.07.2024)
         name = self.sender().objectName()       # name of the object: 'Area n'
         self.compare_and_transfer(name)         # transfer of data
@@ -361,15 +479,26 @@ class VessQC(QWidget):
         self.show_popup_window()                # open a new pop-up window
 
     def restore(self):
+        """ Restore the data of a specific area in the pop-up window """
+
         # (19.07.2024)
         name = self.sender().objectName()
         index = int(name[5:])
         self.areas[index]['done'] = False
         self.show_popup_window()
 
-    def compare_and_transfer(self, name):
-        # (09.08.2024) Compare old and new data and transfer the changes to
-        # the prediction and uncertainty data
+    def compare_and_transfer(self, name: str):
+        """
+        Compare old and new data and transfer the changes to the prediction
+        and uncertainty data
+
+        Parameters
+        ----------
+        name : str
+            Name of the area (e.g. 'area 5')
+        """
+
+        # (09.08.2024)
         index = int(name[5:])                   # n = number of the area
         area_i = self.areas[index]              # selected area
 
@@ -403,6 +532,8 @@ class VessQC(QWidget):
             area_i['done'] = True               # mark this area as treated
 
     def btn_save(self):
+        """ Save the prediction and uncertainty data to files on drive """
+
         # (26.07.2024)
         # 1st: save the prediction data
         data = self.viewer.layers['Prediction'].data
@@ -433,6 +564,8 @@ class VessQC(QWidget):
                 file.close()
 
     def reload(self):
+        """ Read the prediction and uncertainty data from files on drive """
+
         # (30.07.2024)
         # 1st: read the prediction data
         filename = self.parent / '_Prediction.npy'
@@ -483,6 +616,12 @@ class VessQC(QWidget):
             self.build_areas()          # define areas
 
     def final_segmentation(self):
+        """
+        Close all open area layers, close the pop-up window, save the
+        prediction and if applicable also the uncertainty data to files on
+        drive
+        """
+
         # (13.08.2024)
         # 1st: close all open area layers
         lst = [layer for layer in self.viewer.layers
@@ -530,13 +669,17 @@ class VessQC(QWidget):
                 print('Error:', error)
                 return
 
-    def cbx_save_unc(self, state):
+    def cbx_save_unc(self, state: Qt.Checked):
+        """ Toggle the bool variable save_uncertainty """
+
         if state == Qt.Checked:
             self.save_uncertainty = True
         else:
             self.save_uncertainty = False
 
     def btn_info(self):     # pragma: no cover
+        """ Show information about the current layer """
+
         # (25.07.2024)
         layer = self.viewer.layers.selection.active
         print('layer:', layer.name)
