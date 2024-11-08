@@ -39,7 +39,7 @@ from qtpy.QtWidgets import (
     QWidget,
     QSizePolicy,
 )
-from vessqc._mv_widget import CrossWidget, MultipleViewerWidget
+# from vessqc._mv_widget import CrossWidget, MultipleViewerWidget
 
 if TYPE_CHECKING:
     import napari
