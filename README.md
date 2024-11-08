@@ -65,6 +65,3 @@ If you encounter any problems, please [file an issue] along with a detailed desc
 [tox]: https://tox.readthedocs.io/en/latest/
 [pip]: https://pypi.org/project/pip/
 [PyPI]: https://pypi.org/
-=======
-Vessel Quality Check
->>>>>>> 088ad943b5411890159b487ff395e149afcd74c9
