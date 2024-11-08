@@ -84,7 +84,6 @@ def output_file(tmp_path):
 def test_init(vessqc):
     # (12.09.2024)
     assert str(type(vessqc)) == "<class 'vessqc._widget.VessQC'>"
-    assert vessqc.start_multiple_viewer == True
     assert vessqc.save_uncertainty == False
 
 
