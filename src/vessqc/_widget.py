@@ -128,7 +128,7 @@ class VessQC(QWidget):
 
         super().__init__()
         self.viewer = viewer
-        self.start_multiple_viewer = True
+        # self.start_multiple_viewer = True
         self.save_uncertainty = False
 
         # Define some labels and buttons
@@ -208,6 +208,7 @@ class VessQC(QWidget):
         # (23.05.2024);
         self.areas = [None]
 
+        """
         if self.start_multiple_viewer:          # run this part only once!
             # Call the multiple viewer and the cross widget
             dock_widget = MultipleViewerWidget(self.viewer)
@@ -217,6 +218,7 @@ class VessQC(QWidget):
             self.viewer.window.add_dock_widget(cross_widget, name="Cross", \
                 area="left")
             self.start_multiple_viewer = False
+        """
 
         # Find and load the data file
         filter1 = "NIfTI files (*.nii *.nii.gz);;TIFF files (*.tif *.tiff);;\
@@ -303,7 +305,11 @@ class VessQC(QWidget):
                 return
 
         # Save the data in label or image layers
-        self.viewer.add_labels(self.prediction, name='Prediction')
+        try:
+            self.viewer.add_labels(self.prediction, name='Prediction')
+        except BaseException as error:
+            print('Error:', error)
+
         self.viewer.add_image(self.uncertainty, name='Uncertainty', \
             blending='additive', visible=False)
 
