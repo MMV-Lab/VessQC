@@ -221,14 +221,15 @@ class VessQC(QWidget):
         """
 
         # Find and load the data file
-        filter1 = "NIfTI files (*.nii *.nii.gz);;TIFF files (*.tif *.tiff);;\
+        filter1 = "TIFF files (*.tif *.tiff);;NIfTI files (*.nii *.nii.gz);;\
             All files (*.*)"
         filename, _ = QFileDialog.getOpenFileName(self, 'Input file', '',
             filter1)
         image_path = Path(filename)
         self.parent = image_path.parent             # The data directory
-        self.suffix = image_path.suffix.lower()     # File extension
-        name1 = image_path.stem                     # Name of the file
+        # self.suffix = image_path.suffix.lower()     # File extension
+        self.suffix = '.gz'
+        self.name1 = image_path.stem                     # Name of the file
 
         if self.suffix == '.tif' or self.suffix == '.tiff':
             self.is_tifffile = True
@@ -254,7 +255,7 @@ class VessQC(QWidget):
                 print('Error:', error)
                 return
 
-        self.viewer.add_image(self.image, name=name1)   # Show the image
+        self.viewer.add_image(self.image, name=self.name1)   # Show the image
 
     def segmentation(self):
         """
@@ -263,21 +264,28 @@ class VessQC(QWidget):
         """
 
         # (23.05.2024)
+        name2 = self.name1[:-2]
+        prediction_file  = name2 + 'segPred'
+        uncertainty_file = name2 + 'uncertainty'
+
         if self.suffix == '.nii':       # The file type depends on the extension
-            prediction_file  = self.parent / 'Prediction.nii'
-            uncertainty_file = self.parent / 'Uncertainty.nii'
+            prediction_file  = prediction_file + '.nii'
+            uncertainty_file = uncertainty_file + '.nii'
         elif self.suffix == '.gz':
-            prediction_file  = self.parent / 'Prediction.nii.gz'
-            uncertainty_file = self.parent / 'Uncertainty.nii.gz'
+            prediction_file  = prediction_file + '.nii.gz'
+            uncertainty_file = uncertainty_file + '.nii.gz'
         elif self.suffix == '.tif':
-            prediction_file  = self.parent / 'Prediction.tif'
-            uncertainty_file = self.parent / 'Uncertainty.tif'
+            prediction_file  = prediction_file + '.tif'
+            uncertainty_file = uncertainty_file + '.tif'
         elif self.suffix == 'tiff':
-            prediction_file  = self.parent / 'Prediction.tiff'
-            uncertainty_file = self.parent / 'Uncertainty.tiff'
+            prediction_file  = prediction_file + '.tiff'
+            uncertainty_file = uncertainty_file + '.tiff'
         else:
             print('Unknown file type')
             return
+        
+        prediction_file  = self.parent / prediction_file
+        uncertainty_file = self.parent / uncertainty_file
 
         if self.is_tifffile:
             try:
