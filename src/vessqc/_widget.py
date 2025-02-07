@@ -67,7 +67,7 @@ class VessQC(QWidget):
         Is the file extension '.tif' or '.tiff'?
     image : numpy.ndarray
         3D array with image data
-    prediction : numpy.ndarray
+    segmentation : numpy.ndarray
         3D array with the vessel data
     uncertainty : numpy.ndarray
         3D array with uncertainties
@@ -78,11 +78,10 @@ class VessQC(QWidget):
     -------
     __init__(viewer: "napari.viewer.Viewer")
         Class constructor
-    load()
-        Call multiple viewer widget  and cross widget, read the image file and
-        save it in an image layer
-    segmentation()
-        Read the prediction and uncertanty data and save it in a label and an
+    load_image()
+        Read the image file and save it in an image layer
+    read_segmentation()
+        Read the segmentation and uncertanty data and save it in a label and an
         image layer
     build_areas()
         Define areas that correspond to values of equal uncertainty
@@ -93,29 +92,27 @@ class VessQC(QWidget):
     show_area()
         Show the data for a specific uncertanty in a new label layer
     done()
-        Transfer data from the area to the prediction and uncertainty layer and
-        close the layer for the area
+        Transfer data from the area to the segmentation and uncertainty layer
+        and close the layer for the area
     restore()
         Restore the data of a specific area in the pop-up window
     compare_and_transfer(name: str)
         Compare old and new data of an area and transfer the changes to the
-        prediction and uncertainty data
+        segmentation and uncertainty data
     btn_save()
-        Save the prediction and uncertainty data to files on drive
+        Save the segmentation and uncertainty data to files on drive
     reload()
-        Read the prediction and uncertainty data from files on drive
+        Read the segmentation and uncertainty data from files on drive
     final_segmentation()
-        Close all open area layers, close the pop-up window, save the prediction
-        and if applicable also the uncertainty data to files on drive
-    cbx_save_unc(state: Qt.Checked)
+        Close all open area layers, close the pop-up window, save the
+        segmentation and if applicable also the uncertainty data to files on
+        drive
+    cbx_save_uncertainty(state: Qt.Checked)
         Toggle the bool variable save_uncertainty
     btn_info()
         Show information about the current layer
     """
 
-    # your QWidget.__init__ can optionally request the napari viewer instance
-    # use a type annotation of 'napari.viewer.Viewer' for any parameter
-    # (03.05.2024)
     def __init__(self, viewer: "napari.viewer.Viewer"):
         """
         Class constructor
@@ -126,6 +123,7 @@ class VessQC(QWidget):
             napari.viewer
         """
 
+        # (03.05.2024)
         super().__init__()
         self.viewer = viewer
         # self.start_multiple_viewer = True
@@ -137,11 +135,11 @@ class VessQC(QWidget):
         font.setPointSize(12)
         label1.setFont(font)
 
-        btnLoad = QPushButton('Load file')
-        btnLoad.clicked.connect(self.load)
+        btnLoad = QPushButton('Load image')
+        btnLoad.clicked.connect(self.load_image)
 
-        btnSegmentation = QPushButton('Segmentation')
-        btnSegmentation.clicked.connect(self.segmentation)
+        btnSegmentation = QPushButton('Read segmentation')
+        btnSegmentation.clicked.connect(self.read_segmentation)
 
         # Test output
         btnInfo = QPushButton('Info')
@@ -165,11 +163,11 @@ class VessQC(QWidget):
         label4 = QLabel('_______________')
         label4.setAlignment(Qt.AlignHCenter)
 
-        btnFinalSeg = QPushButton('Generate final segmentation')
-        btnFinalSeg.clicked.connect(self.final_segmentation)
+        btnFinalSegmentation = QPushButton('Generate final segmentation')
+        btnFinalSegmentation.clicked.connect(self.final_segmentation)
 
-        cbxSaveUnc = QCheckBox('Save uncertainty')
-        cbxSaveUnc.stateChanged.connect(self.cbx_save_unc)
+        cbxSaveUncertainty = QCheckBox('Save uncertainty')
+        cbxSaveUncertainty.stateChanged.connect(self.cbx_save_uncertainty)
 
         # Define the layout of the main widget
         self.setLayout(QVBoxLayout())
@@ -183,157 +181,143 @@ class VessQC(QWidget):
         self.layout().addWidget(btnSave)
         self.layout().addWidget(btnReload)
         self.layout().addWidget(label4)
-        self.layout().addWidget(btnFinalSeg)
-        self.layout().addWidget(cbxSaveUnc)
+        self.layout().addWidget(btnFinalSegmentation)
+        self.layout().addWidget(cbxSaveUncertainty)
 
+    def load_image(self):
         """
-        # Close the uncertanty_list when Napari is closed
-        def wrapper(self, func, event):
-            self.on_close()
-            return func(event)
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            func = self.viewer.window._qt_window.closeEvent
-            self.viewer.window._qt_window.closeEvent = \
-                lambda event: wrapper(self, func, event)
-        """
-
-    def load(self):
-        """
-        Call multiple viewer widget and cross widget, read the image file and
-        save it in an image layer
+        Read the image file and save it in an image layer
         """
 
         # (23.05.2024);
         self.areas = [None]
 
-        """
-        if self.start_multiple_viewer:          # run this part only once!
-            # Call the multiple viewer and the cross widget
-            dock_widget = MultipleViewerWidget(self.viewer)
-            cross_widget = CrossWidget(self.viewer)
-
-            self.viewer.window.add_dock_widget(dock_widget, name="Views")
-            self.viewer.window.add_dock_widget(cross_widget, name="Cross", \
-                area="left")
-            self.start_multiple_viewer = False
-        """
-
-        # Find and load the data file
+        # Find and load the image file
         filter1 = "TIFF files (*.tif *.tiff);;NIfTI files (*.nii *.nii.gz);;\
             All files (*.*)"
-        filename, _ = QFileDialog.getOpenFileName(self, 'Input file', '',
-            filter1)
-        image_path = Path(filename)
-        self.parent = image_path.parent             # The data directory
-        # self.suffix = image_path.suffix.lower()     # File extension
-        self.suffix = '.gz'
-        self.name1 = image_path.stem                     # Name of the file
-
-        if self.suffix == '.tif' or self.suffix == '.tiff':
-            self.is_tifffile = True
-        else:
-            self.is_tifffile = False
-
-        if filename == '':                          # Cancel has been pressed
+        filename, _ = \
+            QFileDialog.getOpenFileName(self, 'Image file', '', filter1)
+        if filename == '':                      # Cancel has been pressed
             print('The "Cancel" button has been pressed.')
             return
-        elif self.is_tifffile:
-            print('Load', image_path)
-            try:
-                self.image = imread(image_path)
-            except BaseException as error:
-                print('Error:', error)
-                return
-        else:
-            print('Load', image_path)
-            try:
-                sitk_image = sitk.ReadImage(image_path)
+
+        path = Path(filename)
+        self.parent = path.parent              # The data directory
+        self.stem1 = path.stem                 # Name of the file
+        suffix = path.suffix.lower()           # File extension
+
+        # Truncate the .nii extension
+        if suffix == '.gz' and self.stem1[-4:] == '.nii':
+            self.stem1 = self.stem1[:-4]
+
+        # Load the image file
+        print('Load', path)
+        try:
+            if suffix == '.tif' or suffix == '.tiff':
+                self.image = imread(path)
+            elif suffix == '.nii' or suffix == '.gz':
+                sitk_image = sitk.ReadImage(path)
                 self.image = sitk.GetArrayFromImage(sitk_image)
-            except BaseException as error:
-                print('Error:', error)
+            else:
+                print('Unknown file type: %s%s!' % (self.stem1, suffix))
                 return
+        except BaseException as error:
+            print('Error:', error)
+            return
 
-        self.viewer.add_image(self.image, name=self.name1)   # Show the image
+        self.viewer.add_image(self.image, name=self.stem1)   # Show the image
 
-    def segmentation(self):
+    def read_segmentation(self):
         """
-        Read the prediction and uncertanty data and save it in a label and an
+        Read the segmentation and uncertanty data and save it in a label and an
         image layer
         """
 
-        # (23.05.2024)
-        name2 = self.name1[:-2]
-        prediction_file  = name2 + 'segPred'
-        uncertainty_file = name2 + 'uncertainty'
+        # (23.05.2024, revised on 05.02.2025)
+        # Search for the segmentation file
+        stem2 = self.stem1[:-3] + '_segPred'
+        path = self.parent / stem2
 
-        if self.suffix == '.nii':       # The file type depends on the extension
-            prediction_file  = prediction_file + '.nii'
-            uncertainty_file = uncertainty_file + '.nii'
-        elif self.suffix == '.gz':
-            prediction_file  = prediction_file + '.nii.gz'
-            uncertainty_file = uncertainty_file + '.nii.gz'
-        elif self.suffix == '.tif':
-            prediction_file  = prediction_file + '.tif'
-            uncertainty_file = uncertainty_file + '.tif'
-        elif self.suffix == 'tiff':
-            prediction_file  = prediction_file + '.tiff'
-            uncertainty_file = uncertainty_file + '.tiff'
+        if path.with_suffix('.tif').is_file():
+            path = path.with_suffix('.tif')
+            suffix = '.tif'
+        elif path.with_suffix('.tiff').is_file():
+            path = path.with_suffix('.tiff')
+            suffix = '.tiff'
+        elif path.with_suffix('.nii').is_file():
+            path = path.with_suffix('.nii')
+            suffix = '.nii'
+        elif path.with_suffix('.nii.gz').is_file():
+            path = path.with_suffix('.nii.gz')
+            suffix = '.gz'
         else:
-            print('Unknown file type')
+            print('No segmentation file %s found!' % (path))
             return
-        
-        prediction_file  = self.parent / prediction_file
-        uncertainty_file = self.parent / uncertainty_file
 
-        if self.is_tifffile:
-            try:
-                print('Load', prediction_file)      # Load the prediction file
-                # bioio_image = BioImage(prediction_file)
-                # self.prediction = bioio_image.get_image_data("ZYX", T=0, C=0)
-                self.prediction = imread(prediction_file)
-                print('Load', uncertainty_file)     # Load the uncertainty file
-                # bioio_image = BioImage(uncertainty_file)
-                # self.uncertainty = bioio_image.get_image_data("ZYX", T=0, C=0)
-                self.uncertainty = imread(uncertainty_file)
-            except BaseException as error:
-                print('Error:', error)
-                return
-        else:
-            try:
-                print('Load', prediction_file)      # Load the prediction file
-                sitk_image = sitk.ReadImage(prediction_file)
-                self.prediction = sitk.GetArrayFromImage(sitk_image)
-                print('Load', uncertainty_file)     # Load the uncertainty file
-                sitk_image = sitk.ReadImage(uncertainty_file)
-                self.uncertainty = sitk.GetArrayFromImage(sitk_image)
-            except BaseException as error:
-                print('Error:', error)
-                return
-
-        # Save the data in label or image layers
+        # Read the segmentation file
+        print('Load', path)
         try:
-            self.viewer.add_labels(self.prediction, name='Prediction')
+            if suffix == '.tif' or suffix == '.tiff':
+                self.segmentation = imread(path)
+            elif suffix == '.nii' or suffix == '.gz':
+                sitk_image = sitk.ReadImage(path)
+                self.segmentation = sitk.GetArrayFromImage(sitk_image)
         except BaseException as error:
             print('Error:', error)
+            return
 
+        # Save the segmentation data in a label layer
+        self.viewer.add_labels(self.segmentation, name='Segmentation')
+
+        # Search for the uncertainty file
+        stem2 = self.stem1[:-3] + '_uncertainty'
+        path = self.parent / stem2
+
+        if path.with_suffix('.tif').is_file():
+            path = path.with_suffix('.tif')
+            suffix = '.tif'
+        elif path.with_suffix('.tiff').is_file():
+            path = path.with_suffix('.tiff')
+            suffix = '.tiff'
+        elif path.with_suffix('.nii').is_file():
+            path = path.with_suffix('.nii')
+            suffix = '.nii'
+        elif path.with_suffix('.nii.gz').is_file():
+            path = path.with_suffix('.nii.gz')
+            suffix = '.gz'
+        else:
+            print('No uncertainty file %s found!' % (path))
+            return
+
+        # Read the uncertainty file
+        print('Load', path)
+        try:
+            if suffix == '.tif' or suffix == '.tiff':
+                self.uncertainty = imread(path)
+            elif suffix == '.nii' or suffix == '.gz':
+                sitk_image = sitk.ReadImage(path)
+                self.uncertainty = sitk.GetArrayFromImage(sitk_image)
+        except BaseException as error:
+            print('Error:', error)
+            return
+
+        # Save the uncertanity data in an image layer
         self.viewer.add_image(self.uncertainty, name='Uncertainty', \
             blending='additive', visible=False)
 
         if self.areas == [None]:
-            self.build_areas()                  # define areas
+            self.build_areas()              # define areas
 
     def build_areas(self):
         """ Define areas that correspond to values of equal uncertainty """
 
         # (09.08.2024)
-        unc_values, counts = np.unique(self.uncertainty, return_counts=True)
-        n = len(unc_values)
+        uncertainties, counts = np.unique(self.uncertainty, return_counts=True)
+        n = len(uncertainties)
         self.areas = [None]                     # List of dictionaries
 
         for i in range(1, n):
-            area_i = {'name': 'Area %d' % (i), 'unc_value': unc_values[i],
+            area_i = {'name': 'Area %d' % (i), 'uncertainty': uncertainties[i],
                 'counts': counts[i], 'centroid': (), 'where': None,
                 'done': False}
             self.areas.append(area_i)
@@ -405,7 +389,7 @@ class VessQC(QWidget):
         Parameters
         ----------
         area_i : dict
-            name, unc_value, counts, centroid, where and done for a specific
+            name, uncertainty, counts, centroid, where and done for a specific
             area
         grid_layout : QGridLayout
             Layout for a QGroupBox
@@ -415,12 +399,14 @@ class VessQC(QWidget):
 
         # (13.08.2024)
         name = area_i['name']
+        uncertainty1 = '%.5f' % (area_i['uncertainty'])
+        counts = '%d' % (area_i['counts'])
         done = area_i['done']
+
+        # Define some buttons and labels
         button1 = QPushButton(name)
         button1.clicked.connect(self.show_area)
-        unc_value = '%.5f' % (area_i['unc_value'])
-        label1 = QLabel(unc_value)
-        counts = '%d' % (area_i['counts'])
+        label1 = QLabel(uncertainty1)
         label2 = QLabel(counts)
 
         if done:
@@ -431,6 +417,7 @@ class VessQC(QWidget):
             button2 = QPushButton('done', objectName=name)
             button2.clicked.connect(self.done)
 
+        # Arange the buttons and labels in the grid
         grid_layout.addWidget(button1, i, 0)
         grid_layout.addWidget(label1, i, 1)
         grid_layout.addWidget(label2, i, 2)
@@ -443,8 +430,8 @@ class VessQC(QWidget):
         name = self.sender().text()         # text of the button: "Area n"
         index = int(name[5:])               # n = number of the area
         area_i = self.areas[index]          # selected area
-        unc_value = area_i['unc_value']     # uncertainty value of the area
-        centroid  = area_i['centroid']      # center of the data points
+        uncertainty1 = area_i['uncertainty']# uncertainty value of the area
+        centroid = area_i['centroid']       # center of the data points
 
         # Check whether the layer 'name' already exists
         if any(layer.name == name and
@@ -459,10 +446,10 @@ class VessQC(QWidget):
             
         else:
             # Show the data for a specific uncertanty;
-            where1 = np.where(self.uncertainty == unc_value)
-            area_i['where'] = where1            # save np.where() for later use
-            data = np.zeros(self.uncertainty.shape, dtype=np.int8)
-            data[where1] = index + 1            # build a new label layer
+            where1 = np.where(self.uncertainty == uncertainty1)
+            area_i['where'] = where1        # save the result for later use
+            data = np.zeros(self.uncertainty.shape, dtype=np.int_)
+            data[where1] = index + 1        # build a new label layer
             layer = self.viewer.add_labels(data, name=name)
 
             # Find the center of the data points
@@ -481,7 +468,7 @@ class VessQC(QWidget):
 
     def done(self):
         """
-        Transfer data from the area to the prediction and uncertainty layer and
+        Transfer data from the area to the segmentation and uncertainty layer and
         close the layer for the area
         """
 
@@ -503,7 +490,7 @@ class VessQC(QWidget):
 
     def compare_and_transfer(self, name: str):
         """
-        Compare old and new data and transfer the changes to the prediction
+        Compare old and new data and transfer the changes to the segmentation
         and uncertainty data
 
         Parameters
@@ -532,26 +519,26 @@ class VessQC(QWidget):
             ind_new = np.where(delta > 0)       # new data points
             ind_del = np.where(delta < 0)       # deleted data points
 
-            # transfer the changes to the prediction layer
-            self.prediction[ind_new] = 1
-            self.prediction[ind_del] = 0
-            self.viewer.layers['Prediction'].data = self.prediction
+            # transfer the changes to the segmentation layer
+            self.segmentation[ind_new] = 1
+            self.segmentation[ind_del] = 0
+            self.viewer.layers['Segmentation'].data = self.segmentation
 
             # transfer the changes to the uncertainty layer
-            unc_value = area_i['unc_value']
-            self.uncertainty[ind_new] = unc_value
+            uncertainty = area_i['uncertainty']
+            self.uncertainty[ind_new] = uncertainty
             self.uncertainty[ind_del] = 0.0
             self.viewer.layers['Uncertainty'].data = self.uncertainty
 
             area_i['done'] = True               # mark this area as treated
 
     def btn_save(self):
-        """ Save the prediction and uncertainty data to files on drive """
+        """ Save the segmentation and uncertainty data to files on drive """
 
         # (26.07.2024)
-        # 1st: save the prediction data
-        data = self.viewer.layers['Prediction'].data
-        filename = self.parent / '_Prediction.npy'
+        # 1st: save the segmentation data
+        data = self.viewer.layers['Segmentation'].data
+        filename = self.parent / '_Segmentation.npy'
         print('Save', filename)
 
         try:
@@ -578,16 +565,16 @@ class VessQC(QWidget):
                 file.close()
 
     def reload(self):
-        """ Read the prediction and uncertainty data from files on drive """
+        """ Read the segmentation and uncertainty data from files on drive """
 
         # (30.07.2024)
-        # 1st: read the prediction data
-        filename = self.parent / '_Prediction.npy'
+        # 1st: read the segmentation data
+        filename = self.parent / '_Segmentation.npy'
         print('Read', filename)
         
         try:
             file = open(filename, 'rb')
-            self.prediction = np.load(file)
+            self.segmentation = np.load(file)
         except BaseException as error:
             print('Error:', error)
             return
@@ -595,13 +582,13 @@ class VessQC(QWidget):
             if 'file' in locals() and file:
                 file.close()
 
-        # If the 'Prediction' layer already exists'
-        if any(layer.name.startswith('Prediction') and
+        # If the 'Segmentation' layer already exists'
+        if any(layer.name.startswith('Segmentation') and
             isinstance(layer, napari.layers.Labels)
             for layer in self.viewer.layers):
-            self.viewer.layers['Prediction'].data = self.prediction
+            self.viewer.layers['Segmentation'].data = self.segmentation
         else:
-            self.viewer.add_labels(self.prediction, name='Prediction')
+            self.viewer.add_labels(self.segmentation, name='Segmentation')
 
         # 2st: read the uncertainty data
         filename = self.parent / '_Uncertainty.npy'
@@ -632,7 +619,7 @@ class VessQC(QWidget):
     def final_segmentation(self):
         """
         Close all open area layers, close the pop-up window, save the
-        prediction and if applicable also the uncertainty data to files on
+        segmentation and if applicable also the uncertainty data to files on
         drive
         """
 
@@ -651,20 +638,20 @@ class VessQC(QWidget):
         if hasattr(self, 'popup_window'):       # close the pop-up window
             self.popup_window.close()
         if hasattr(self, 'parent'):
-            default_name = str(self.parent / 'Prediction.tif')
+            default_name = str(self.parent / 'Segmentation.tif')
         else:
-            default_name = 'Prediction.tif'
+            default_name = 'Segmentation.tif'
 
         filter1 = "TIFF files (*.tif *.tiff);;All files (*.*)"
-        filename, _ = QFileDialog.getSaveFileName(self, 'Prediction file', \
+        filename, _ = QFileDialog.getSaveFileName(self, 'Segmentation file', \
             default_name, filter1)
 
         if filename == '':                  # Cancel has been pressed
             print('The "Cancel" button has been pressed.')
             return
-        elif 'Prediction' in self.viewer.layers:
+        elif 'Segmentation' in self.viewer.layers:
             print('Save', filename)
-            data = self.viewer.layers['Prediction'].data
+            data = self.viewer.layers['Segmentation'].data
             try:
                 imwrite(filename, data)
             except BaseException as error:
@@ -683,7 +670,7 @@ class VessQC(QWidget):
                 print('Error:', error)
                 return
 
-    def cbx_save_unc(self, state: Qt.Checked):
+    def cbx_save_uncertainty(self, state: Qt.Checked):
         """ Toggle the bool variable save_uncertainty """
 
         if state == Qt.Checked:
@@ -708,8 +695,8 @@ class VessQC(QWidget):
             print('shape:', image.shape)
             print('---')
             print('min:', np.min(image))
-            print('max:', np.max(image))
             print('median:', np.median(image))
+            print('max:', np.max(image))
             print('mean: %.3f' % (np.mean(image)))
             print('std: %.3f' %  (np.std(image)))
 
