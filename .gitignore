@@ -84,5 +84,5 @@ venv/
 **/_version.py
 
 # my personal odds and ends
-Backup/
-Data/
+/Backup/
+/Data/
