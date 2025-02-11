@@ -167,7 +167,7 @@ class VessQC(QWidget):
         btnFinalSegmentation.clicked.connect(self.final_segmentation)
 
         cbxSaveUncertainty = QCheckBox('Save uncertainty')
-        cbxSaveUncertainty.stateChanged.connect(self.cbx_save_uncertainty)
+        cbxSaveUncertainty.stateChanged.connect(self.checkbox_save_uncertainty)
 
         # Define the layout of the main widget
         self.setLayout(QVBoxLayout())
@@ -512,7 +512,7 @@ class VessQC(QWidget):
 
             # compare new and old data
             where1 = area_i['where']            # recall the old values
-            old_data = np.zeros(new_data.shape, dtype=np.int8)
+            old_data = np.zeros(new_data.shape, dtype=np.int_)
             old_data[where1] = index + 1
             delta = new_data - old_data
 
@@ -537,13 +537,12 @@ class VessQC(QWidget):
 
         # (26.07.2024)
         # 1st: save the segmentation data
-        data = self.viewer.layers['Segmentation'].data
         filename = self.parent / '_Segmentation.npy'
         print('Save', filename)
 
         try:
             file = open(filename, 'wb')
-            np.save(file, data)
+            np.save(file, self.segmentation)
         except BaseException as error:
             print('Error:', error)
         finally:
@@ -551,13 +550,12 @@ class VessQC(QWidget):
                 file.close()
 
         #2nd: save the uncertainty data
-        data = self.viewer.layers['Uncertainty'].data
         filename = self.parent / '_Uncertainty.npy'
         print('Save', filename)
 
         try:
             file = open(filename, 'wb')
-            np.save(file, data)
+            np.save(file, self.uncertainty)
         except BaseException as error:
             print('Error:', error)
         finally:
@@ -628,49 +626,50 @@ class VessQC(QWidget):
         lst = [layer for layer in self.viewer.layers
             if layer.name.startswith('Area') and
             isinstance(layer, napari.layers.Labels)]
-        print('Close areas', [layer.name for layer in lst])
 
         for layer in lst:
             name = layer.name
+            print('Close areas', name)
             self.compare_and_transfer(name)
             self.viewer.layers.remove(layer)    # delete the layer 'Area n'
 
         if hasattr(self, 'popup_window'):       # close the pop-up window
             self.popup_window.close()
-        if hasattr(self, 'parent'):
-            default_name = str(self.parent / 'Segmentation.tif')
-        else:
-            default_name = 'Segmentation.tif'
 
-        filter1 = "TIFF files (*.tif *.tiff);;All files (*.*)"
+        filename = self.stem1[:-3] + '_segNew.tif'
+        filter1 = "TIFF files (*.tif *.tiff)"
+
+        if hasattr(self, 'parent'):
+            default_file_name = str(self.parent / filename)
+        else:
+            default_file_name = filename
+
         filename, _ = QFileDialog.getSaveFileName(self, 'Segmentation file', \
-            default_name, filter1)
+            default_file_name, filter1)
 
         if filename == '':                  # Cancel has been pressed
             print('The "Cancel" button has been pressed.')
             return
-        elif 'Segmentation' in self.viewer.layers:
-            print('Save', filename)
-            data = self.viewer.layers['Segmentation'].data
-            try:
-                imwrite(filename, data)
-            except BaseException as error:
-                print('Error:', error)
-                return
 
-        if self.save_uncertainty and 'Uncertainty' in self.viewer.layers:
+        print('Save', filename)
+        try:
+            imwrite(filename, self.segmentation)
+        except BaseException as error:
+            print('Error:', error)
+            return
+
+        if self.save_uncertainty:
             path = Path(filename)
             parent = path.parent
-            unc_name = str(parent.joinpath('Uncertainty.tif'))
-            print('Save', unc_name)
-            data = self.viewer.layers['Uncertainty'].data
+            filename2 = self.stem1 + '_uncNew.tif'
+            filename2 = parent / filename
+            print('Save', filename2)
             try:
-                imwrite(unc_name, data)
+                imwrite(filename2, self.uncertainty)
             except BaseException as error:
                 print('Error:', error)
-                return
 
-    def cbx_save_uncertainty(self, state: Qt.Checked):
+    def checkbox_save_uncertainty(self, state: Qt.Checked):
         """ Toggle the bool variable save_uncertainty """
 
         if state == Qt.Checked:
