@@ -318,7 +318,7 @@ class VessQC(QWidget):
 
         for i in range(1, n):
             area_i = {'name': 'Area %d' % (i), 'uncertainty': uncertainties[i],
-                'counts': counts[i], 'centroid': (), 'where': None,
+                'counts': counts[i], 'centroid': None, 'where': None,
                 'done': False}
             self.areas.append(area_i)
 
@@ -428,7 +428,7 @@ class VessQC(QWidget):
 
         # (29.05.2024)
         name = self.sender().text()         # text of the button: "Area n"
-        index = int(name[5:])               # n = number of the area
+        index = int(name[5:])               # index = number of the "Area n"
         area_i = self.areas[index]          # selected area
         uncertainty1 = area_i['uncertainty']# uncertainty value of the area
         centroid = area_i['centroid']       # center of the data points
@@ -453,7 +453,7 @@ class VessQC(QWidget):
             layer = self.viewer.add_labels(data, name=name)
 
             # Find the center of the data points
-            if centroid == ():
+            if centroid == None:
                 centroid = ndimage.center_of_mass(data)
                 centroid = (int(centroid[0]), int(centroid[1]), int(centroid[2]))
                 area_i['centroid'] = centroid
@@ -636,21 +636,17 @@ class VessQC(QWidget):
         if hasattr(self, 'popup_window'):       # close the pop-up window
             self.popup_window.close()
 
+        # Build a filename for the segmentation data
         filename = self.stem1[:-3] + '_segNew.tif'
-        filter1 = "TIFF files (*.tif *.tiff)"
-
-        if hasattr(self, 'parent'):
-            default_file_name = str(self.parent / filename)
-        else:
-            default_file_name = filename
-
+        default_filename = str(self.parent / filename)
         filename, _ = QFileDialog.getSaveFileName(self, 'Segmentation file', \
-            default_file_name, filter1)
-
-        if filename == '':                  # Cancel has been pressed
+            default_filename, 'TIFF files (*.tif *.tiff)')
+        if filename == '':                      # Cancel has been pressed
             print('The "Cancel" button has been pressed.')
             return
 
+        # Save the segmentation data
+        filename = Path(filename)
         print('Save', filename)
         try:
             imwrite(filename, self.segmentation)
@@ -658,11 +654,10 @@ class VessQC(QWidget):
             print('Error:', error)
             return
 
+        # Save the uncertainty data
         if self.save_uncertainty:
-            path = Path(filename)
-            parent = path.parent
-            filename2 = self.stem1 + '_uncNew.tif'
-            filename2 = parent / filename
+            filename2 = self.stem1[:-3] + '_uncNew.tif'
+            filename2 = filename.parent / filename2
             print('Save', filename2)
             try:
                 imwrite(filename2, self.uncertainty)

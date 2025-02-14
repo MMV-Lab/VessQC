@@ -13,12 +13,9 @@ from unittest.mock import patch
 from pathlib import Path
 from tifffile import imread, imwrite
 from vessqc._widget import VessQC
-# capsys is a pytest fixture that captures stdout and stderr output streams
 
-# Class to save and share variables between tests
-class ValueStorage():
-    parent = Path(__file__).parent / "Data"
-    image_path =  parent / "Image.tif"
+# A single constant
+PARENT = Path(__file__).parent / 'data'
 
 # make_napari_viewer is a pytest fixture that returns a napari viewer object
 # you don't need to import it, as long as napari is installed in your
@@ -32,42 +29,35 @@ def vessqc(make_napari_viewer):
 # define fixtures for the image data
 @pytest.fixture
 def image_data():
-    filename = ValueStorage.parent / "Image.tif"
-    return imread(filename)
+    return imread(PARENT / 'Box32x32_IM.tif')
 
 @pytest.fixture
-def prediction_data():
-    filename = ValueStorage.parent / 'Prediction.tif'
-    return imread(filename)
+def segmentation_data():
+    return imread(PARENT / 'Box32x32_segPred.tif')
 
 @pytest.fixture
-def prediction_new_data():
+def segmentation_new_data():
     # (24.09.2024)
-    filename = ValueStorage.parent / 'Prediction_new.tif'
-    return imread(filename)
+    return imread(PARENT / 'Box32x32_segNew.tif')
 
 @pytest.fixture
 def uncertainty_data():
-    filename = ValueStorage.parent / 'Uncertainty.tif'
-    return imread(filename)
+    return imread(PARENT / 'Box32x32_uncertainty.tif')
 
 @pytest.fixture
 def uncertainty_new_data():
     # (26.09.2024)
-    filename = ValueStorage.parent / 'Uncertainty_new.tif'
-    return imread(filename)
+    return imread(PARENT / 'Box32x32_uncNew.tif')
 
 @pytest.fixture
 def area5_data():
     # (20.09.2024)
-    filename = ValueStorage.parent / 'Area5.tif'
-    return imread(filename)
+    return imread(PARENT / 'Area5.tif')
 
 @pytest.fixture
 def area5_new_data():
     # (24.09.2024)
-    filename = ValueStorage.parent / 'Area5_new.tif'
-    return imread(filename)
+    return imread(PARENT / 'Area5_new.tif')
 
 @pytest.fixture
 def areas(vessqc, uncertainty_data):
@@ -75,10 +65,6 @@ def areas(vessqc, uncertainty_data):
     vessqc.uncertainty = uncertainty_data
     vessqc.build_areas()
     return vessqc.areas
-
-@pytest.fixture
-def output_file(tmp_path):
-    return str(tmp_path / 'Prediction.tif')
 
 @pytest.mark.init
 def test_init(vessqc):
@@ -89,38 +75,36 @@ def test_init(vessqc):
 
 # The patch replaces the getOpenFileName() function with the return values
 @patch("qtpy.QtWidgets.QFileDialog.getOpenFileName",
-    return_value=(ValueStorage.image_path, None))
-@pytest.mark.load
-def test_load(mock_open_file_name, vessqc, image_data):
+    return_value=(PARENT / 'Box32x32_IM.tif', None))
+@pytest.mark.load_image
+def test_load_image(mock_open_file_name, vessqc, image_data):
     # (12.09.2024)
     viewer = vessqc.viewer
-    vessqc.load()
+    vessqc.load_image()
 
     mock_open_file_name.assert_called_once()
     assert len(viewer.layers) == 1
     layer = viewer.layers[0]
-    assert layer.name == 'Image'
+    assert layer.name == 'Box32x32_IM'
     assert np.array_equal(layer.data, image_data)
-    assert vessqc.parent == ValueStorage.parent
-    assert vessqc.suffix == '.tif'
+    assert vessqc.parent == PARENT
 
 
-@pytest.mark.segmentation
-def test_segmentation(vessqc, prediction_data, uncertainty_data):
+@pytest.mark.read_segmentation
+def test_read_segmentation(vessqc, segmentation_data, uncertainty_data):
     # (13.09.2024)
     viewer = vessqc.viewer
-    vessqc.suffix = '.tif'
-    vessqc.parent = ValueStorage.parent
-    vessqc.is_tifffile = True
+    vessqc.stem1 = 'Box32x32_IM'
+    vessqc.parent = PARENT
     vessqc.areas = [None]
-    vessqc.segmentation()
+    vessqc.read_segmentation()
 
     assert len(viewer.layers) == 2
     layer0 = viewer.layers[0]
     layer1 = viewer.layers[1]
-    assert layer0.name == 'Prediction'
+    assert layer0.name == 'Segmentation'
     assert layer1.name == 'Uncertainty'
-    assert np.array_equal(layer0.data, prediction_data)
+    assert np.array_equal(layer0.data, segmentation_data)
     assert np.array_equal(layer1.data, uncertainty_data)
 
 
@@ -129,13 +113,12 @@ def test_build_areas(vessqc, uncertainty_data):
     # (17.09.2024)
     vessqc.uncertainty = uncertainty_data
     vessqc.build_areas()
-    ValueStorage.areas = vessqc.areas
 
     assert len(vessqc.areas) == 10
     assert vessqc.areas[1]['name'] == 'Area 1'
-    assert vessqc.areas[2]['unc_value'] == np.float32(0.2)
+    assert vessqc.areas[2]['uncertainty'] == np.float32(0.2)
     assert vessqc.areas[3]['counts'] == 34
-    assert vessqc.areas[4]['centroid'] == ()
+    assert vessqc.areas[4]['centroid'] == None
     assert vessqc.areas[5]['where'] == None
     assert vessqc.areas[6]['done'] == False
 
@@ -168,20 +151,19 @@ def test_popup_window(mock_widget_show, vessqc, areas):
     assert group_box.title() == 'Uncertainty list'
 
     grid_layout = group_box.layout()
+    assert str(type(grid_layout)) == "<class 'PyQt5.QtWidgets.QGridLayout'>"
+    assert grid_layout.rowCount() == 12
+    assert grid_layout.columnCount() == 4
     item_0 = grid_layout.itemAtPosition(5, 0)
     item_1 = grid_layout.itemAtPosition(5, 1)
     item_2 = grid_layout.itemAtPosition(5, 2)
     item_3 = grid_layout.itemAtPosition(5, 3)
-    assert str(type(grid_layout)) == "<class 'PyQt5.QtWidgets.QGridLayout'>"
-    assert grid_layout.rowCount() == 12
-    assert grid_layout.columnCount() == 4
     assert item_0.widget().text() == areas[5]['name']
-    assert item_1.widget().text() == '%.5f' % (areas[5]['unc_value'])
+    assert item_1.widget().text() == '%.5f' % (areas[5]['uncertainty'])
     assert item_2.widget().text() == '%d' % (areas[5]['counts'])
     assert item_3.widget().text() == 'done'
 
     mock_widget_show.assert_called_once()
-    #assert False
 
 
 @pytest.mark.new_entry
@@ -202,7 +184,7 @@ def test_new_entry(vessqc, areas):
     assert str(type(item_2.widget())) == "<class 'PyQt5.QtWidgets.QLabel'>"
     assert str(type(item_3.widget())) == "<class 'PyQt5.QtWidgets.QPushButton'>"
     assert item_0.widget().text() == areas[2]['name']
-    assert item_1.widget().text() == '%.5f' % (areas[2]['unc_value'])
+    assert item_1.widget().text() == '%.5f' % (areas[2]['uncertainty'])
     assert item_2.widget().text() == '%d' % (areas[2]['counts'])
     assert item_3.widget().text() == 'done'
 
@@ -234,7 +216,7 @@ def test_show_area(mock_widget_show, vessqc, areas, area5_data):
     else:
         assert False
 
-    # 2nd click ob the "Area 5" button
+    # 2nd click on the "Area 5" button
     QTest.mouseClick(button5, Qt.LeftButton)
 
     if any(layer.name == 'Area 5' and isinstance(layer, napari.layers.Labels)
@@ -258,12 +240,13 @@ def get_grid_layout(vessqc: VessQC) -> QGridLayout:
 
 @patch("qtpy.QtWidgets.QWidget.show")
 @pytest.mark.transfer
-def test_transfer(mock_widget_show, vessqc, prediction_data, prediction_new_data,
-    uncertainty_data, uncertainty_new_data, areas, area5_new_data):
+def test_transfer(mock_widget_show, vessqc, segmentation_data,
+    segmentation_new_data, uncertainty_data, uncertainty_new_data, areas,
+    area5_new_data):
     # (24.09.2024)
-    vessqc.prediction = prediction_data
+    vessqc.segmentation = segmentation_data
     vessqc.uncertainty = uncertainty_data
-    pred_layer = vessqc.viewer.add_labels(vessqc.prediction, name='Prediction')
+    seg_layer = vessqc.viewer.add_labels(vessqc.segmentation, name='Segmentation')
     unc_layer =  vessqc.viewer.add_image(vessqc.uncertainty, name='Uncertainty')
     vessqc.areas = areas
 
@@ -300,7 +283,7 @@ def test_transfer(mock_widget_show, vessqc, prediction_data, prediction_new_data
 
     # the data in the Napari layers Prediction and Uncertainty should have
     # been changed by the function compare_and_transfer()
-    assert np.array_equal(pred_layer.data, prediction_new_data)
+    assert np.array_equal(seg_layer.data, segmentation_new_data)
     assert np.array_equal(unc_layer.data, uncertainty_new_data)
     assert areas[5]['done'] == True
 
@@ -354,17 +337,18 @@ def test_transfer(mock_widget_show, vessqc, prediction_data, prediction_new_data
     assert widget3.text() == 'done'
 
 
+# tmp_path is a pytest fixture
 @pytest.mark.save
-def test_save(tmp_path, vessqc, prediction_data, uncertainty_data):
+def test_save(tmp_path, vessqc, segmentation_data, uncertainty_data):
     # (27.09.2024)
-    pred_layer = vessqc.viewer.add_labels(prediction_data, name='Prediction')
-    unc_layer =  vessqc.viewer.add_image(uncertainty_data, name='Uncertainty')
+    vessqc.segmentation = segmentation_data
+    vessqc.uncertainty = uncertainty_data
     vessqc.parent = tmp_path
     vessqc.btn_save()
 
-    filename = tmp_path / '_Prediction.npy'
+    filename = tmp_path / '_Segmentation.npy'
     loaded_data = np.load(str(filename))
-    np.testing.assert_array_equal(loaded_data, prediction_data)
+    np.testing.assert_array_equal(loaded_data, segmentation_data)
 
     filename = tmp_path / '_Uncertainty.npy'
     loaded_data = np.load(str(filename))
@@ -372,18 +356,18 @@ def test_save(tmp_path, vessqc, prediction_data, uncertainty_data):
 
 
 @pytest.mark.save_with_exc
-def test_save_with_exc(tmp_path, vessqc, prediction_data,
+def test_save_with_exc(tmp_path, vessqc, segmentation_data,
     uncertainty_data):
     # (27.09.2024)
-    pred_layer = vessqc.viewer.add_labels(prediction_data, name='Prediction')
-    unc_layer =  vessqc.viewer.add_image(uncertainty_data, name='Uncertainty')
+    vessqc.segmentation = segmentation_data
+    vessqc.uncertainty = uncertainty_data
     vessqc.parent = tmp_path
 
     # simulate an exception when opening the file
     with mock.patch("builtins.open", side_effect=OSError("File error")):
         vessqc.btn_save()
 
-    filename = tmp_path / '_Prediction.npy'
+    filename = tmp_path / '_Segmentation.npy'
     assert not filename.exists()
 
     filename = tmp_path / '_Uncertainty.npy'
@@ -391,15 +375,15 @@ def test_save_with_exc(tmp_path, vessqc, prediction_data,
 
 
 @pytest.mark.reload
-def test_reload(tmp_path, vessqc, prediction_data, uncertainty_data):
+def test_reload(tmp_path, vessqc, segmentation_data, uncertainty_data):
     # (01.10.2024)
     vessqc.parent = tmp_path
     vessqc.areas = [None]
 
-    filename = tmp_path / '_Prediction.npy'
+    filename = tmp_path / '_Segmentation.npy'
     try:
         file = open(filename, 'wb')
-        np.save(file, prediction_data)
+        np.save(file, segmentation_data)
     except BaseException as error:
         print('Error:', error)
         assert False
@@ -423,9 +407,9 @@ def test_reload(tmp_path, vessqc, prediction_data, uncertainty_data):
     # test vessqc.areas
     assert len(vessqc.areas) == 10
     assert vessqc.areas[1]['name'] == 'Area 1'
-    assert vessqc.areas[2]['unc_value'] == np.float32(0.2)
+    assert vessqc.areas[2]['uncertainty'] == np.float32(0.2)
     assert vessqc.areas[3]['counts'] == 34
-    assert vessqc.areas[4]['centroid'] == ()
+    assert vessqc.areas[4]['centroid'] == None
     assert vessqc.areas[5]['where'] == None
     assert vessqc.areas[6]['done'] == False
 
@@ -433,9 +417,9 @@ def test_reload(tmp_path, vessqc, prediction_data, uncertainty_data):
     assert len(vessqc.viewer.layers) == 2
     layer0 = vessqc.viewer.layers[0]
     layer1 = vessqc.viewer.layers[1]
-    assert layer0.name == 'Prediction'
+    assert layer0.name == 'Segmentation'
     assert layer1.name == 'Uncertainty'
-    np.testing.assert_array_equal(layer0.data, prediction_data)
+    np.testing.assert_array_equal(layer0.data, segmentation_data)
     np.testing.assert_array_equal(layer1.data, uncertainty_data)
 
 
@@ -454,13 +438,15 @@ def test_reload_with_exc(tmp_path, vessqc):
 
 
 @pytest.mark.final_segmentation
-def test_final_segmentation(tmp_path, vessqc, prediction_data,
-    uncertainty_data, output_file):
+def test_final_segmentation(tmp_path, vessqc, segmentation_data,
+    uncertainty_data):
     # (01.10.2024)
-    pred_layer = vessqc.viewer.add_labels(prediction_data, name='Prediction')
-    unc_layer =  vessqc.viewer.add_image(uncertainty_data, name='Uncertainty')
+    vessqc.segmentation = segmentation_data
+    vessqc.uncertainty = uncertainty_data
     vessqc.parent = tmp_path
     vessqc.save_uncertainty = True
+    vessqc.stem1 = 'Box32x32_IM'
+    output_file = str(tmp_path / 'Box32x32_segNew.tif')
 
     # call the function final_segmentation()
     with patch("qtpy.QtWidgets.QFileDialog.getSaveFileName",
@@ -468,17 +454,17 @@ def test_final_segmentation(tmp_path, vessqc, prediction_data,
         vessqc.final_segmentation()
 
     try:
-        filename = tmp_path / 'Prediction.tif'
-        loaded_data = imread(filename)
-        np.testing.assert_array_equal(loaded_data, prediction_data)
+        filename = tmp_path / 'Box32x32_segNew.tif'
+        segNew_data = imread(filename)
+        np.testing.assert_array_equal(segNew_data, segmentation_data)
     except BaseException as error:
         print('Error:', error)
         assert False
 
     try:
-        filename = tmp_path / 'Uncertainty.tif'
-        loaded_data = imread(filename)
-        np.testing.assert_array_equal(loaded_data, uncertainty_data)
+        filename = tmp_path / 'Box32x32_uncNew.tif'
+        uncNew_data = imread(filename)
+        np.testing.assert_array_equal(uncNew_data, uncertainty_data)
     except BaseException as error:
         print('Error:', error)
         assert False
@@ -486,21 +472,23 @@ def test_final_segmentation(tmp_path, vessqc, prediction_data,
 
 @patch("vessqc._widget.imwrite", side_effect=BaseException("File error"))
 @pytest.mark.final_seg_with_exc
-def test_final_seg_with_exc(mock_imwrite, tmp_path, vessqc, prediction_data,
-    uncertainty_data, output_file):
+def test_final_seg_with_exc(mock_imwrite, tmp_path, vessqc, segmentation_data,
+    uncertainty_data):
     # (02.10.2024)
-    pred_layer = vessqc.viewer.add_labels(prediction_data, name='Prediction')
-    unc_layer =  vessqc.viewer.add_image(uncertainty_data, name='Uncertainty')
+    vessqc.segmentation = segmentation_data
+    vessqc.uncertainty = uncertainty_data
     vessqc.parent = tmp_path
     vessqc.save_uncertainty = True
+    vessqc.stem1 = 'Box32x32_IM'
+    output_file = str(tmp_path / 'Box32x32_segNew.tif')
 
     # call the function final_segmentation()
     with patch("qtpy.QtWidgets.QFileDialog.getSaveFileName",
         return_value=(output_file, None)):
         vessqc.final_segmentation()
 
-    filename = tmp_path / 'Prediction.tif'
+    filename = tmp_path / 'Box32x32_segNew.tif'
     assert not filename.exists()
 
-    filename = tmp_path / 'Uncertainty.tif'
+    filename = tmp_path / 'Box32x32_uncNew.tif'
     assert not filename.exists()
