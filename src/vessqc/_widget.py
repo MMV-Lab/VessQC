@@ -4,7 +4,7 @@ Module for the definition of the class VessQC
 Imports
 -------
 napari, numpy, pathlib.Path, qtpy.QtCore.QSize, qtpy.QtCore.QT, qtpy.QtWidgets,
-scipy.ndimage, SimpleITK, tifffile.imread, tifffile.imwrite, time, warnings
+scipy.ndimage, SimpleITK, tifffile.imread, tifffile.imwrite, time
 
 Exports
 -------
@@ -20,7 +20,6 @@ import numpy as np
 import napari
 import SimpleITK as sitk
 import time
-import warnings
 from tifffile import imread, imwrite
 from scipy import ndimage
 from pathlib import Path

@@ -1,13 +1,77 @@
+[project]
+name = "VessQC"
+dynamic = ["version"]
+description = "Napari plugin for checking and correcting the segmentation"
+readme = "README.md"
+license = {file = "LICENSE"}
+authors = [
+  {name = "Peter Lampen"},
+  {email = "lampen@isas.de"},
+]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Framework :: napari",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: BSD License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Image Processing",
+]
+requires-python = ">=3.9"
+dependencies = [
+    "napari",
+    "numpy",
+    "qtpy",
+    "scipy",
+    "SimpleITK",
+    "tifffile",
+]
+
+[project.optional-dependencies]
+testing = [
+    "tox",
+    "pytest",  # https://docs.pytest.org/en/latest/contents.html
+    "pytest-cov",  # https://pytest-cov.readthedocs.io/en/latest/
+    "pytest-qt",  # https://pytest-qt.readthedocs.io/en/latest/
+    "napari",
+    "pyqt5",
+]
+
+[project.entry-points."napari.manifest"]
+VessQC = "vessqc:napari.yaml"
+
+[project.urls]
+"Bug Tracker" = "https://github.com/MMV-Lab/VessQC/issues"
+"Documentation" = "https://github.com/MMV-Lab/VessQC#README.md"
+"Source Code" = "https://github.com/MMV-Lab/VessQC"
+"User Support" = "https://github.com/MMV-Lab/VessQC/issues"
+
 [build-system]
 requires = ["setuptools>=42.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools]
+include-package-data = true
 
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"*" = ["*.yaml"]
+
+
+[tool.setuptools.dynamic]
+version = {attr = "vessqc.__init__.__version__"}
 
 [tool.black]
 line-length = 79
 target-version = ['py38', 'py39', 'py310']
-
 
 [tool.ruff]
 line-length = 79
