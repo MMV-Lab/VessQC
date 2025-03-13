@@ -1,5 +1,7 @@
 include LICENSE
 include README.md
 
+include src/vessqc/napari.yaml
+
 recursive-exclude * __pycache__
 recursive-exclude * *.py[co]

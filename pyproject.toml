@@ -1,29 +1,32 @@
+[build-system]
+requires = ["setuptools>=42.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "VessQC"
-dynamic = ["version"]
+version = "0.6.0"
 description = "Napari plugin for checking and correcting the segmentation"
-readme = "README.md"
-license = {file = "LICENSE"}
 authors = [
-  {name = "Peter Lampen"},
-  {email = "lampen@isas.de"},
+  { name = "Peter Lampen", email = "lampen@isas.de" },
+
 ]
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.9"
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
     "Framework :: napari",
-    "Intended Audience :: Developers",
-    "License :: OSI Approved :: BSD License",
-    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Image Processing",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "Topic :: Scientific/Engineering :: Image Processing",
+    "Operating System :: OS Independent",
+    "License :: OSI Approved :: BSD License",
 ]
-requires-python = ">=3.8"
 dependencies = [
     "napari",
     "numpy",
@@ -43,18 +46,12 @@ testing = [
     "pyqt5",
 ]
 
-[project.entry-points."napari.manifest"]
-VessQC = "vessqc:napari.yaml"
-
 [project.urls]
+"Homepage" = "https://github.com/MMV-Lab/VessQC"
 "Bug Tracker" = "https://github.com/MMV-Lab/VessQC/issues"
 "Documentation" = "https://github.com/MMV-Lab/VessQC#README.md"
 "Source Code" = "https://github.com/MMV-Lab/VessQC"
 "User Support" = "https://github.com/MMV-Lab/VessQC/issues"
-
-[build-system]
-requires = ["setuptools>=42.0.0", "wheel"]
-build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 include-package-data = true
@@ -65,56 +62,5 @@ where = ["src"]
 [tool.setuptools.package-data]
 "*" = ["*.yaml"]
 
-
-[tool.setuptools.dynamic]
-version = {attr = "vessqc.__init__.__version__"}
-
-[tool.black]
-line-length = 79
-target-version = ['py38', 'py39', 'py310']
-
-[tool.ruff]
-line-length = 79
-lint.select = [
-    "E", "F", "W", #flake8
-    "UP", # pyupgrade
-    "I", # isort
-    "BLE", # flake8-blind-exception
-    "B", # flake8-bugbear
-    "A", # flake8-builtins
-    "C4", # flake8-comprehensions
-    "ISC", # flake8-implicit-str-concat
-    "G", # flake8-logging-format
-    "PIE", # flake8-pie
-    "SIM", # flake8-simplify
-]
-lint.ignore = [
-    "E501", # line too long. let black handle this
-    "UP006", "UP007", # type annotation. As using magicgui require runtime type annotation then we disable this.
-    "SIM117", # flake8-simplify - some of merged with statements are not looking great with black, reanble after drop python 3.9
-]
-
-exclude = [
-    ".bzr",
-    ".direnv",
-    ".eggs",
-    ".git",
-    ".mypy_cache",
-    ".pants.d",
-    ".ruff_cache",
-    ".svn",
-    ".tox",
-    ".venv",
-    "__pypackages__",
-    "_build",
-    "buck-out",
-    "build",
-    "dist",
-    "node_modules",
-    "venv",
-    "*vendored*",
-    "*_vendor*",
-]
-
-target-version = "py38"
-fix = true
+[project.entry-points."napari.manifest"]
+VessQC = "vessqc:napari.yaml"
