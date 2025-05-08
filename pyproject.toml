@@ -6,11 +6,8 @@ build-backend = "setuptools.build_meta"
 name = "VessQC"
 version = "0.6.1"
 description = "Napari plugin for checking and correcting the segmentation"
-authors = [
-  { name = "Peter Lampen", email = "lampen@isas.de" },
-
-]
 readme = "README.md"
+authors = [{name = "Peter Lampen", email = "lampen@isas.de"}]
 license = { file = "LICENSE" }
 requires-python = ">=3.9"
 classifiers = [
