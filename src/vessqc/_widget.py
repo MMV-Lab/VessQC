@@ -4,7 +4,7 @@ Module for the definition of the class VessQC
 Imports
 -------
 napari, numpy, pathlib.Path, qtpy.QtCore.QSize, qtpy.QtCore.QT, qtpy.QtWidgets,
-scipy.ndimage, SimpleITK, tifffile.imread, tifffile.imwrite, time
+scipy.ndimage, SimpleITK, tifffile.imread, tifffile.imwrite
 
 Exports
 -------
@@ -19,26 +19,23 @@ from typing import TYPE_CHECKING
 import numpy as np
 import napari
 import SimpleITK as sitk
-import time
 from tifffile import imread, imwrite
-from scipy import ndimage
+from scipy.ndimage import center_of_mass, label
 from pathlib import Path
 from qtpy.QtCore import QSize, Qt
 from qtpy.QtWidgets import (
-    QApplication,
     QCheckBox,
     QFileDialog,
     QGridLayout,
     QGroupBox,
     QLabel,
-    QMainWindow,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
     QSizePolicy,
 )
-# from vessqc._mv_widget import CrossWidget, MultipleViewerWidget
 
 if TYPE_CHECKING:
     import napari
@@ -125,62 +122,61 @@ class VessQC(QWidget):
         # (03.05.2024)
         super().__init__()
         self.viewer = viewer
-        # self.start_multiple_viewer = True
         self.save_uncertainty = False
+
+        # Define the layout of the main widget
+        self.setLayout(QVBoxLayout())
 
         # Define some labels and buttons
         label1 = QLabel('Vessel quality check')
         font = label1.font()
         font.setPointSize(12)
         label1.setFont(font)
+        self.layout().addWidget(label1)
 
         btnLoad = QPushButton('Load image')
         btnLoad.clicked.connect(self.load_image)
+        self.layout().addWidget(btnLoad)
 
         btnSegmentation = QPushButton('Read segmentation')
         btnSegmentation.clicked.connect(self.read_segmentation)
+        self.layout().addWidget(btnSegmentation)
 
         # Test output
         btnInfo = QPushButton('Info')
         btnInfo.clicked.connect(self.btn_info)
+        self.layout().addWidget(btnInfo)
 
         label2 = QLabel('_______________')
         label2.setAlignment(Qt.AlignHCenter)
+        self.layout().addWidget(label2)
 
         label3 = QLabel('Curation')
         label3.setFont(font)
+        self.layout().addWidget(label3)
 
         btnUncertainty = QPushButton('Load uncertainty list')
         btnUncertainty.clicked.connect(self.show_popup_window)
+        self.layout().addWidget(btnUncertainty)
 
         btnSave = QPushButton('Save intermediate curation')
         btnSave.clicked.connect(self.btn_save)
+        self.layout().addWidget(btnSave)
 
         btnReload = QPushButton('Load saved curation')
         btnReload.clicked.connect(self.reload)
+        self.layout().addWidget(btnReload)
 
         label4 = QLabel('_______________')
         label4.setAlignment(Qt.AlignHCenter)
+        self.layout().addWidget(label4)
 
         btnFinalSegmentation = QPushButton('Generate final segmentation')
         btnFinalSegmentation.clicked.connect(self.final_segmentation)
+        self.layout().addWidget(btnFinalSegmentation)
 
         cbxSaveUncertainty = QCheckBox('Save uncertainty')
         cbxSaveUncertainty.stateChanged.connect(self.checkbox_save_uncertainty)
-
-        # Define the layout of the main widget
-        self.setLayout(QVBoxLayout())
-        self.layout().addWidget(label1)
-        self.layout().addWidget(btnLoad)
-        self.layout().addWidget(btnSegmentation)
-        self.layout().addWidget(btnInfo)
-        self.layout().addWidget(label2)
-        self.layout().addWidget(label3)
-        self.layout().addWidget(btnUncertainty)
-        self.layout().addWidget(btnSave)
-        self.layout().addWidget(btnReload)
-        self.layout().addWidget(label4)
-        self.layout().addWidget(btnFinalSegmentation)
         self.layout().addWidget(cbxSaveUncertainty)
 
     def load_image(self):
@@ -194,20 +190,23 @@ class VessQC(QWidget):
         # Find and load the image file
         filter1 = "TIFF files (*.tif *.tiff);;NIfTI files (*.nii *.nii.gz);;\
             All files (*.*)"
-        filename, _ = \
-            QFileDialog.getOpenFileName(self, 'Image file', '', filter1)
+        filename, _ = QFileDialog.getOpenFileName(self, 'Image file', '',
+            filter1)
+
         if filename == '':                      # Cancel has been pressed
-            print('The "Cancel" button has been pressed.')
-            return
+            button = QMessageBox.information(self, 'Info',
+                'Cancel has been pressed.')
+            if button == QMessageBox.Ok:
+                return
+        else:
+            path = Path(filename)
+            self.parent = path.parent          # The data directory
+            self.stem1 = path.stem             # Name of the input file
+            suffix = path.suffix.lower()       # File extension
 
-        path = Path(filename)
-        self.parent = path.parent              # The data directory
-        self.stem1 = path.stem                 # Name of the file
-        suffix = path.suffix.lower()           # File extension
-
-        # Truncate the .nii extension
-        if suffix == '.gz' and self.stem1[-4:] == '.nii':
-            self.stem1 = self.stem1[:-4]
+            # Truncate the .nii extension
+            if suffix == '.gz' and self.stem1[-4:] == '.nii':
+                self.stem1 = self.stem1[:-4]
 
         # Load the image file
         print('Load', path)
@@ -218,7 +217,8 @@ class VessQC(QWidget):
                 sitk_image = sitk.ReadImage(path)
                 self.image = sitk.GetArrayFromImage(sitk_image)
             else:
-                print('Unknown file type: %s%s!' % (self.stem1, suffix))
+                QMessageBox.information(self, 'Info',
+                    'Unknown file type: %s%s!' % (self.stem1, suffix))
                 return
         except BaseException as error:
             print('Error:', error)
@@ -453,7 +453,7 @@ class VessQC(QWidget):
 
             # Find the center of the data points
             if centroid == None:
-                centroid = ndimage.center_of_mass(data)
+                centroid = center_of_mass(data)
                 centroid = (int(centroid[0]), int(centroid[1]), int(centroid[2]))
                 area_i['centroid'] = centroid
                 print('Centroid:', centroid)
