@@ -306,22 +306,22 @@ class VessQC(QWidget):
         if self.areas == []:
             self.build_areas(self.uncertainty)      # define areas
 
-    def build_areas(self, image: np.ndarray):
+    def build_areas(self, uncert: np.ndarray):
         """ Define segments that correspond to values of equal uncertainty """
 
         # (09.08.2024, revised on 20.05.2025)
-        unique_values = np.unique(image)
+        unique_values = np.unique(uncert)
         unique_values = unique_values[unique_values > 0]    # Values != 0
 
         tolerance = 1e-5            # Tolerance, if necessary
-        unc_values = [0.0]          # List of all uncertanty values
-        self.labels = np.zeros_like(image, dtype=int)   # result array
+        uncert_values = [0.0]       # List of all uncertanty values
+        self.labels = np.zeros_like(uncert, dtype=int)  # result array
         current_label = 0           # offset for labels
-        structure = np.ones((3, 3, 3), dtype=int)   # Connectivity
+        structure = np.ones((3, 3, 3), dtype=int)       # Connectivity
 
         # For each value: Create mask and mark the segments with ndimage.label
         for value in unique_values:
-            mask = np.abs(image - value) < tolerance
+            mask = np.abs(uncert - value) < tolerance
             mask.astype(int)
             labeled, num = ndimage.label(mask, structure)   # Segmentation
 
@@ -332,12 +332,11 @@ class VessQC(QWidget):
             current_label += num
 
             # Save the uncertainty value for each label
-            unc_values.extend([value] * num)
+            uncert_values.extend([value] * num)
 
         # Summarize segments with less than 10 voxels
         min_size = 10
         counts = np.bincount(self.labels.ravel())
-        new_max = np.max(self.labels) + 1
 
         # Ignore background (label == 0)
         small_labels = np.where(counts < min_size)[0]
@@ -345,13 +344,14 @@ class VessQC(QWidget):
 
         # Mask for all small segments
         mask_small = np.isin(self.labels, small_labels)
+        new_max = np.max(self.labels) + 1
         self.labels[mask_small] = new_max
 
         # Create a structure for storing the data
         all_labels = np.unique(self.labels)
         all_labels = all_labels[all_labels != 0]
         counts = np.bincount(self.labels.ravel())
-        unc_values.append(np.median(unique_values))
+        uncert_values.append(np.median(unique_values))
 
         print(len(all_labels), 'segments')
 
@@ -360,10 +360,10 @@ class VessQC(QWidget):
             segment = {
                 'name': 'Segment %d' % (label),
                 'label': label,
-                'uncertainty': unc_values[label],
+                'uncertainty': uncert_values[label],
                 'counts': counts[label],
-                'com': None,
-                'where': None,
+                'com': None,                # center of mass
+                'site': None,
                 'done': False
             }
             self.areas.append(segment)
@@ -438,7 +438,7 @@ class VessQC(QWidget):
         Parameters
         ----------
         segment : dict
-            'name', 'uncertainty', 'counts', 'com', 'where' and 'done'
+            'name', 'uncertainty', 'counts', 'com', 'site' and 'done'
             for a specific area
         grid_layout : QGridLayout
             Layout for a QGroupBox
@@ -480,7 +480,6 @@ class VessQC(QWidget):
         name = self.sender().text()     # text of the button: Segment n
         hit = [d for d in self.areas if d.get('name') == name]  # d == dict.
         segment = hit[0]
-        # print(segment)
         label = segment['label']        # segment label
         com = segment['com']            # center of mass
 
@@ -498,7 +497,7 @@ class VessQC(QWidget):
         else:
             # Show the data for a specific segment;
             site = np.where(self.labels == label)
-            segment['where'] = site     # save the site for later use
+            segment['site'] = site      # save the site for later use
             data = np.zeros_like(self.labels)
             data[site] = label + 1      # build a new label layer
             layer = self.viewer.add_labels(data, name=name)
@@ -565,7 +564,7 @@ class VessQC(QWidget):
             new_data = self.viewer.layers[name].data
 
             # compare new and old data
-            site = segment['where']             # recall the old values
+            site = segment['site']              # recall the old values
             old_data = np.zeros_like(new_data, dtype=int)
             old_data[site] = label + 1
             delta = new_data - old_data
