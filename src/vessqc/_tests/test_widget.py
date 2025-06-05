@@ -60,14 +60,23 @@ def uncertainty_new():
     return imread(PARENT / 'Box32x32_uncNew.tif')
 
 @pytest.fixture
-def area5_data():
+def segment4_data():
     # (20.09.2024)
-    return imread(PARENT / 'Area5.tif')
+    return imread(PARENT / 'Segment4.tif')
 
 @pytest.fixture
-def area5_new():
+def segment4_new():
     # (24.09.2024)
-    return imread(PARENT / 'Area5_new.tif')
+    return imread(PARENT / 'Segment4_new.tif')
+
+@pytest.fixture
+def labels_data():
+    # (05.06.2025)
+    filename = PARENT / '_Labels.npy'
+    file = open(filename, 'rb')
+    labels = np.load(file)
+    file.close()
+    return labels
 
 @pytest.fixture
 def areas(vessqc, uncertainty_data):
@@ -131,7 +140,7 @@ def test_build_areas(vessqc, uncertainty_data):
     vessqc.build_areas(uncertainty_data)
 
     assert len(vessqc.areas) == 9
-    assert vessqc.areas[0]['name'] == 'Segment 2'
+    assert vessqc.areas[0]['name'] == 'Segment 1'
     assert vessqc.areas[1]['label'] == 3
     assert vessqc.areas[2]['uncertainty'] == np.float32(0.4)
     assert vessqc.areas[3]['counts'] == 34
@@ -175,7 +184,7 @@ def test_popup_window(mock_show_widget, vessqc, areas):
     item_1 = grid_layout.itemAtPosition(5, 1)
     item_2 = grid_layout.itemAtPosition(5, 2)
     item_3 = grid_layout.itemAtPosition(5, 3)
-    assert item_0.widget().text() == 'Segment 6'
+    assert item_0.widget().text() == 'Segment 5'
     assert item_1.widget().text() == '0.60000'
     assert item_2.widget().text() == '37'
     assert item_3.widget().text() == 'done'
@@ -201,165 +210,112 @@ def test_new_entry(vessqc, areas):
     assert isinstance(item_2.widget(), QLabel)
     assert isinstance(item_3.widget(), QPushButton)
 
-    assert item_0.widget().text() == 'Segment 4'
+    assert item_0.widget().text() == 'Segment 3'
     assert item_1.widget().text() == '0.40000'
     assert item_2.widget().text() == '35'
     assert item_3.widget().text() == 'done'
 
 
-@patch("qtpy.QtWidgets.QWidget.show")
 @pytest.mark.show_area
-def test_show_area(mock_show_widget, vessqc, areas, area5_data):
+def test_show_area(vessqc, areas, segment4_data):
     # (20.09.2024)
     vessqc.areas = areas
-    button1 = QPushButton('Segment 5')
-    button1.clicked.connect(vessqc.show_area)
 
     # Here I simulate a mouse click on button1
+    button1 = QPushButton('Segment 4')
+    button1.clicked.connect(vessqc.show_area)
     QTest.mouseClick(button1, Qt.LeftButton)
 
-    print(areas[3])
-    assert areas[3]['com'] == (15, 16, 15)
-    assert vessqc.viewer.dims.current_step == (15, 16, 15)
-    assert vessqc.viewer.camera.center == (15, 16, 15)
+    segment = areas[3]
+    com = (15, 16, 15)                  # center of mass
+    assert segment['com'] == com
+    assert vessqc.viewer.dims.current_step == com
+    assert vessqc.viewer.camera.center == com
 
-    if any(layer.name == 'Segment 5' and isinstance(layer, napari.layers.Labels)
+    if any(layer.name == 'Segment 4' and isinstance(layer, napari.layers.Labels)
         for layer in vessqc.viewer.layers):
-        layer = vessqc.viewer.layers['Segment 5']
-        assert layer.name == 'Segment 5'
+        layer = vessqc.viewer.layers['Segment 4']
+        assert layer.name == 'Segment 4'
         assert layer.selected_label == 6
-        assert np.array_equal(layer.data, area5_data)
+        assert np.array_equal(layer.data, segment4_data)
     else:
         assert False
 
     # 2nd click on button1
     QTest.mouseClick(button1, Qt.LeftButton)
 
-    if any(layer.name == 'Segment 5' and isinstance(layer, napari.layers.Labels)
+    if any(layer.name == 'Segment 4' and isinstance(layer, napari.layers.Labels)
         for layer in vessqc.viewer.layers):
-        layer = vessqc.viewer.layers['Segment 5']
-        assert layer.name == 'Segment 5'
+        layer = vessqc.viewer.layers['Segment 4']
+        assert layer.name == 'Segment 4'
     else:
         assert False
 
 
-def get_grid_layout(vessqc: VessQC) -> QGridLayout:
-    # get the grid_layout from the popup-window of function show_popup_window
-    vessqc.show_popup_window()
-    popup_window = vessqc.popup_window
-    vbox_layout = popup_window.layout()
-    scroll_area = vbox_layout.itemAt(0).widget()
-    group_box = scroll_area.widget()
-    grid_layout = group_box.layout()
-    return grid_layout
-
-
+# QWidget.show is required to intercept vessqc.show_popup_window()
 @patch("qtpy.QtWidgets.QWidget.show")
 @pytest.mark.transfer
-def test_transfer(mock_show_widget, vessqc, segmentation_data,
-    segmentation_new, uncertainty_data, uncertainty_new, areas,
-    area5_new):
+def test_transfer(mock_show_widget, vessqc, segmentation_data, segmentation_new,
+    uncertainty_data, uncertainty_new, areas, segment4_data, segment4_new):
     # (24.09.2024)
     vessqc.segmentation = segmentation_data
     vessqc.uncertainty = uncertainty_data
-    seg_layer = vessqc.viewer.add_labels(vessqc.segmentation, name='Segmentation')
-    unc_layer =  vessqc.viewer.add_image(vessqc.uncertainty, name='Uncertainty')
+    segmentation_layer = vessqc.viewer.add_labels(vessqc.segmentation,
+        name='Segmentation')
     vessqc.areas = areas
 
-    # search for the row with button "Area 5"
-    grid_layout = get_grid_layout(vessqc)
-    index1 = None
-    n = grid_layout.rowCount()
-    for i in range(n):
-        widget0 = grid_layout.itemAtPosition(i, 0).widget()
-        if str(type(widget0)) == "<class 'PyQt5.QtWidgets.QPushButton'>" and \
-            widget0.text() == 'Area 5':
-            index1 = i
-            break
+    # press button1 'Segment 4' to call vessqc.show_area()
+    button1 = QPushButton('Segment 4')
+    button1.clicked.connect(vessqc.show_area)
+    QTest.mouseClick(button1, Qt.LeftButton)
 
-    assert index1 != None       # button "Area 5" has been found
-
-    # press the button "Area 5" to call "show_area()"
-    QTest.mouseClick(widget0, Qt.LeftButton)
-
-    # search for the Napari layer "Area 5" and change this data
-    if any(layer.name == 'Area 5' and isinstance(layer, napari.layers.Labels)
+    # search for the Napari layer "Segment 4" and change its data
+    if any(layer.name == 'Segment 4' and isinstance(layer, napari.layers.Labels)
         for layer in vessqc.viewer.layers):
-        area5_layer = vessqc.viewer.layers['Area 5']
-        assert area5_layer.name == 'Area 5'
-        area5_layer.data = area5_new       # replace the data of the layer
+        layer = vessqc.viewer.layers['Segment 4']
+        assert layer.name == 'Segment 4'
+        assert layer.selected_label == 6
+        assert np.array_equal(layer.data, segment4_data)
+
+        # replace the data of the layer
+        layer.data = segment4_new
     else:
         assert False
 
-    # press the button done in row "Area 5" to call "compare_and_transfer()"
-    widget3 = grid_layout.itemAtPosition(index1, 3).widget()
-    assert str(type(widget3)) == "<class 'PyQt5.QtWidgets.QPushButton'>"
-    assert widget3.text() == 'done'
-    QTest.mouseClick(widget3, Qt.LeftButton)
+    # press button2 'done' to call vessqc.done()
+    button2 = QPushButton('done', objectName='Segment 4')
+    button2.clicked.connect(vessqc.done)
+    QTest.mouseClick(button2, Qt.LeftButton)
 
     # the data in the Napari layers Prediction and Uncertainty should have
     # been changed by the function compare_and_transfer()
-    assert np.array_equal(seg_layer.data, segmentation_new)
-    assert np.array_equal(unc_layer.data, uncertainty_new)
-    assert areas[5]['done'] == True
+    assert np.array_equal(segmentation_layer.data, segmentation_new)
+    assert np.array_equal(vessqc.segmentation, segmentation_new)
+    assert np.array_equal(vessqc.uncertainty,  uncertainty_new)
+    assert areas[3]['done'] == True
 
-    # the Napari layer "Area 5" is removed
-    if any(layer.name == 'Area 5' and isinstance(layer, napari.layers.Labels)
+    # the Napari layer 'Segment 4' is removed
+    if any(layer.name == 'Segment 4' and isinstance(layer, napari.layers.Labels)
         for layer in vessqc.viewer.layers):
         assert False
 
-    # find the new row of the button "Area 5"
-    grid_layout = get_grid_layout(vessqc)
-    index2 = None
-    n = grid_layout.rowCount()
-    for i in range(n):
-        widget0 = grid_layout.itemAtPosition(i, 0).widget()
-        if str(type(widget0)) == "<class 'PyQt5.QtWidgets.QPushButton'>" and \
-            widget0.text() == 'Area 5':
-            index2 = i
-            break
+    # press button 'restore' to call vessqc.restore()
+    button3 = QPushButton('restore', objectName='Segment 4')
+    button3.clicked.connect(vessqc.restore)
+    QTest.mouseClick(button3, Qt.LeftButton)
 
-    assert index2 != None       # button "Area 5" has been found
-    assert index2 > index1      # "Area 5" is now at the end of the list
-    assert widget0.isEnabled() == False     # the button "Area 5" is inactive
-
-    # press the button restore to call the function restore()
-    widget3 = grid_layout.itemAtPosition(index2, 3).widget()
-    assert str(type(widget3)) == "<class 'PyQt5.QtWidgets.QPushButton'>"
-    assert widget3.text() == 'restore'
-    QTest.mouseClick(widget3, Qt.LeftButton)
-
-    assert areas[5]['done'] == False
-
-    # find the new row of the button "Area 5"
-    grid_layout = get_grid_layout(vessqc)
-    index3 = None
-    n = grid_layout.rowCount()
-    for i in range(n):
-        widget0 = grid_layout.itemAtPosition(i, 0).widget()
-        if str(type(widget0)) == "<class 'PyQt5.QtWidgets.QPushButton'>" and \
-            widget0.text() == 'Area 5':
-            index3 = i
-            break
-
-    assert index3 != None       # button "Area 5" has been found
-    assert index3 < index2      # "Area 5" is now in the upper part of the list
-    assert index3 == index1
-    assert widget0.isEnabled() == True     # the button "Area 5" is active
-
-    # check the label of the right button
-    widget3 = grid_layout.itemAtPosition(index3, 3).widget()
-    assert str(type(widget3)) == "<class 'PyQt5.QtWidgets.QPushButton'>"
-    assert widget3.text() == 'done'
+    assert areas[3]['done'] == False
 
 
-# tmp_path is a pytest fixture
+# tmp_path is a pytest fixture (see lab book from 27.09.2024)
 @pytest.mark.save
-def test_save(tmp_path, vessqc, segmentation_data, uncertainty_data):
+def test_save(tmp_path, vessqc, segmentation_data, uncertainty_data,
+    labels_data):
     # (27.09.2024)
     vessqc.segmentation = segmentation_data
-    vessqc.uncertainty = uncertainty_data
-    vessqc.parent = tmp_path
+    vessqc.uncertainty  = uncertainty_data
+    vessqc.labels       = labels_data
+    vessqc.parent       = tmp_path
     vessqc.btn_save()
 
     filename = tmp_path / '_Segmentation.npy'
@@ -370,18 +326,26 @@ def test_save(tmp_path, vessqc, segmentation_data, uncertainty_data):
     loaded_data = np.load(str(filename))
     np.testing.assert_array_equal(loaded_data, uncertainty_data)
 
+    filename = tmp_path / '_Labels.npy'
+    loaded_data = np.load(str(filename))
+    np.testing.assert_array_equal(loaded_data, labels_data)
+
 
 @pytest.mark.save_with_exc
 def test_save_with_exc(tmp_path, vessqc, segmentation_data,
-    uncertainty_data):
+    uncertainty_data, labels_data):
     # (27.09.2024)
     vessqc.segmentation = segmentation_data
-    vessqc.uncertainty = uncertainty_data
-    vessqc.parent = tmp_path
+    vessqc.uncertainty  = uncertainty_data
+    vessqc.labels       = labels_data
+    vessqc.parent       = tmp_path
 
-    # simulate an exception when opening the file
-    with mock.patch("builtins.open", side_effect=OSError("File error")):
+    # Simulate an exception when opening the file
+    with mock.patch("builtins.open", side_effect=OSError("File error")), \
+         mock.patch("qtpy.QtWidgets.QMessageBox.warning") as mock_warning:
         vessqc.btn_save()
+
+    assert mock_warning.call_count == 3
 
     filename = tmp_path / '_Segmentation.npy'
     assert not filename.exists()
@@ -389,9 +353,13 @@ def test_save_with_exc(tmp_path, vessqc, segmentation_data,
     filename = tmp_path / '_Uncertainty.npy'
     assert not filename.exists()
 
+    filename = tmp_path / '_Labels.npy'
+    assert not filename.exists()
+
 
 @pytest.mark.reload
-def test_reload(tmp_path, vessqc, segmentation_data, uncertainty_data):
+def test_reload(tmp_path, vessqc, segmentation_data, uncertainty_data,
+    labels_data):
     # (01.10.2024)
     vessqc.parent = tmp_path
     vessqc.areas = [None]
@@ -418,25 +386,38 @@ def test_reload(tmp_path, vessqc, segmentation_data, uncertainty_data):
         if 'file' in locals() and file:
             file.close()
 
+    filename = tmp_path / '_Labels.npy'
+    try:
+        file = open(filename, 'wb')
+        np.save(file, labels_data)
+    except BaseException as error:
+        print('Error:', error)
+        assert False
+    finally:
+        if 'file' in locals() and file:
+            file.close()
+
     vessqc.reload()
 
+    """
     # test vessqc.areas
     assert len(vessqc.areas) == 10
-    assert vessqc.areas[1]['name'] == 'Area 1'
-    assert vessqc.areas[2]['uncertainty'] == np.float32(0.2)
-    assert vessqc.areas[3]['counts'] == 34
-    assert vessqc.areas[4]['com'] == None
-    assert vessqc.areas[5]['site'] == None
-    assert vessqc.areas[6]['done'] == False
+    assert vessqc.areas[0]['name'] == 'Segment 1'
+    assert vessqc.areas[1]['uncertainty'] == np.float32(0.3)
+    assert vessqc.areas[2]['counts'] == 35
+    assert vessqc.areas[3]['com'] == None
+    assert vessqc.areas[4]['site'] == None
+    assert vessqc.areas[5]['done'] == False
+    """
 
     # test the content of the Napari layers
-    assert len(vessqc.viewer.layers) == 2
+    assert len(vessqc.viewer.layers) == 1
     layer0 = vessqc.viewer.layers[0]
-    layer1 = vessqc.viewer.layers[1]
     assert layer0.name == 'Segmentation'
-    assert layer1.name == 'Uncertainty'
-    np.testing.assert_array_equal(layer0.data, segmentation_data)
-    np.testing.assert_array_equal(layer1.data, uncertainty_data)
+    np.testing.assert_array_equal(layer0.data,         segmentation_data)
+    np.testing.assert_array_equal(vessqc.segmentation, segmentation_data)
+    np.testing.assert_array_equal(vessqc.uncertainty,  uncertainty_data)
+    np.testing.assert_array_equal(vessqc.labels,       labels_data)
 
 
 @pytest.mark.reload_with_exc

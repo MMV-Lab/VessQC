@@ -20,7 +20,6 @@ import numpy as np
 from scipy import ndimage
 import napari
 import SimpleITK as sitk
-import traceback
 from tifffile import imread, imwrite
 from pathlib import Path
 from qtpy.QtCore import QSize, Qt
@@ -80,7 +79,7 @@ class VessQC(QWidget):
     read_segmentation()
         Read the segmentation and uncertanty data and save it in a label and an
         image layer
-    build_areas(image: np.ndarray)
+    build_areas(uncertainty: np.ndarray)
         Define areas that correspond to values of equal uncertainty
     show_popup_window()
         Define a pop-up window for the uncertainty list
@@ -261,7 +260,6 @@ class VessQC(QWidget):
                 sitk_image = sitk.ReadImage(path)
                 self.segmentation = sitk.GetArrayFromImage(sitk_image)
         except BaseException as error:
-            traceback.print_exc()               # For debug purposes
             QMessageBox.warning(self, 'I/O Error:', str(error))
             return
 
@@ -298,7 +296,6 @@ class VessQC(QWidget):
                 sitk_image = sitk.ReadImage(path)
                 self.uncertainty = sitk.GetArrayFromImage(sitk_image)
         except BaseException as error:
-            traceback.print_exc()               # For debug purposes
             QMessageBox.warning(self, 'I/O Error:', str(error))
             return
 
@@ -306,46 +303,45 @@ class VessQC(QWidget):
         if self.areas == []:
             self.build_areas(self.uncertainty)      # define areas
 
-    def build_areas(self, uncert: np.ndarray):
+    def build_areas(self, uncertainty: np.ndarray):
         """ Define segments that correspond to values of equal uncertainty """
 
         # (09.08.2024, revised on 20.05.2025)
-        unique_values = np.unique(uncert)
-        unique_values = unique_values[unique_values > 0]    # Values != 0
+        unique_values = np.unique(uncertainty)
+        unique_values = unique_values[unique_values > 0]    # Values > 0
 
         tolerance = 1e-5            # Tolerance, if necessary
         uncert_values = [0.0]       # List of all uncertanty values
-        self.labels = np.zeros_like(uncert, dtype=int)  # result array
+        self.labels = np.zeros_like(uncertainty, dtype=int) # result array
         current_label = 0           # offset for labels
-        structure = np.ones((3, 3, 3), dtype=int)       # Connectivity
+        structure = np.ones((3, 3, 3), dtype=int)           # Connectivity
 
         # For each value: Create mask and mark the segments with ndimage.label
         for value in unique_values:
-            mask = np.abs(uncert - value) < tolerance
-            mask.astype(int)
+            mask = np.abs(uncertainty - value) < tolerance
             labeled, num = ndimage.label(mask, structure)   # Segmentation
 
             # Move label values so that they are unique
-            mask2 = labeled > 0
-            labeled[mask2] += current_label
-            self.labels[mask2] = labeled[mask2]
+            labeled[mask] += current_label
+            self.labels[mask] = labeled[mask]
             current_label += num
 
             # Save the uncertainty value for each label
             uncert_values.extend([value] * num)
 
-        # Summarize segments with less than 10 voxels
-        min_size = 10
+        # Count how often each label appears
         counts = np.bincount(self.labels.ravel())
 
-        # Ignore background (label == 0)
+        # Determine all labels that appear less than 10 times
+        min_size = 10
         small_labels = np.where(counts < min_size)[0]
-        small_labels = small_labels[small_labels != 0]
+        small_labels = small_labels[small_labels != 0]      # small-labels != 0
 
-        # Mask for all small segments
-        mask_small = np.isin(self.labels, small_labels)
-        new_max = np.max(self.labels) + 1
-        self.labels[mask_small] = new_max
+        # Replaces all labels that occur less than 10 times with the value
+        # new_label
+        new_label = np.max(self.labels) + 1
+        mask = np.isin(self.labels, small_labels)
+        self.labels[mask] = new_label
 
         # Create a structure for storing the data
         all_labels = np.unique(self.labels)
@@ -353,20 +349,20 @@ class VessQC(QWidget):
         counts = np.bincount(self.labels.ravel())
         uncert_values.append(np.median(unique_values))
 
-        print(len(all_labels), 'segments')
-
+        i = 1
         self.areas = []
         for label in all_labels:
             segment = {
-                'name': 'Segment %d' % (label),
+                'name': 'Segment %d' % (i),
                 'label': label,
                 'uncertainty': uncert_values[label],
                 'counts': counts[label],
                 'com': None,                # center of mass
                 'site': None,
-                'done': False
+                'done': False,
             }
             self.areas.append(segment)
+            i += 1
 
     def show_popup_window(self):
         """ Define a pop-up window for the uncertainty list """
@@ -390,7 +386,7 @@ class VessQC(QWidget):
         scroll_area.setWidget(group_box)
 
         # add widgets to the group box
-        grid_layout.addWidget(QLabel('Area'), 0, 0)
+        grid_layout.addWidget(QLabel('Segment'), 0, 0)
         grid_layout.addWidget(QLabel('Uncertainty'), 0, 1)
         grid_layout.addWidget(QLabel('Counts'), 0, 2)
         grid_layout.addWidget(QLabel('done'), 0, 3)
@@ -414,7 +410,7 @@ class VessQC(QWidget):
         i += 1
 
         # The treated areas are shown in the lower part of the group box
-        grid_layout.addWidget(QLabel('Area'), i, 0)
+        grid_layout.addWidget(QLabel('Segment'), i, 0)
         grid_layout.addWidget(QLabel('Uncertainty'), i, 1)
         grid_layout.addWidget(QLabel('Counts'), i, 2)
         grid_layout.addWidget(QLabel('restore'), i, 3)
@@ -486,14 +482,14 @@ class VessQC(QWidget):
         # Check whether the layer 'Segment n' already exists
         if any(layer.name == name and isinstance(layer, napari.layers.Labels)
             for layer in self.viewer.layers):
+            layer = self.viewer.layers[name]
+            data = layer.data
 
             # Place the affected label layer at the top of the stack
-            layer = self.viewer.layers[name]
             source_index = self.viewer.layers.index(layer)
             target_index = len(self.viewer.layers)
             self.viewer.layers.move(source_index, target_index)
             layer.visible = True
-            
         else:
             # Show the data for a specific segment;
             site = np.where(self.labels == label)
@@ -502,12 +498,12 @@ class VessQC(QWidget):
             data[site] = label + 1      # build a new label layer
             layer = self.viewer.add_labels(data, name=name)
 
-            # Find the center of the data points
-            if com == None:
-                com = ndimage.center_of_mass(data)
-                com = tuple(int(round(c)) for c in com)
-                segment['com'] = com
-                print('center of mass:', com)
+        # Find the center of the data points
+        if com == None:
+            com = ndimage.center_of_mass(data)
+            com = tuple(int(round(c)) for c in com)
+            segment['com'] = com
+            print('center of mass:', com)
 
         # Set the appropriate level and focus
         self.viewer.dims.current_step = com
@@ -523,11 +519,11 @@ class VessQC(QWidget):
         """
 
         # (18.07.2024)
-        name = self.sender().objectName()       # name of the object: 'Area n'
-        self.compare_and_transfer(name)         # transfer of data
+        name = self.sender().objectName()   # name of the object: SEgment n
+        self.compare_and_transfer(name)     # transfer of data
         layer = self.viewer.layers[name]
-        self.viewer.layers.remove(layer)        # delete the layer 'Area n'
-        self.show_popup_window()                # open a new pop-up window
+        self.viewer.layers.remove(layer)    # delete the layer 'Segment n'
+        self.show_popup_window()            # open a new pop-up window
 
     def restore(self):
         """ Restore the data of a specific area in the pop-up window """
@@ -547,7 +543,7 @@ class VessQC(QWidget):
         Parameters
         ----------
         name : str
-            Name of the area (e.g. 'area 5')
+            Name of the segment (e.g. 'Segment 5')
         """
 
         # (09.08.2024)
@@ -561,7 +557,8 @@ class VessQC(QWidget):
             for layer in self.viewer.layers):
 
             # search for the changed data points
-            new_data = self.viewer.layers[name].data
+            layer = self.viewer.layers[name]
+            new_data = layer.data
 
             # compare new and old data
             site = segment['site']              # recall the old values
@@ -569,17 +566,17 @@ class VessQC(QWidget):
             old_data[site] = label + 1
             delta = new_data - old_data
 
-            ind_add = np.where(delta > 0)       # new data points
-            ind_del = np.where(delta < 0)       # deleted data points
+            index_add = np.where(delta > 0)       # new data points
+            index_del = np.where(delta < 0)       # deleted data points
 
             # transfer the changes to the segmentation layer
-            self.segmentation[ind_add] = 1
-            self.segmentation[ind_del] = 0
+            self.segmentation[index_add] = 1
+            self.segmentation[index_del] = 0
             self.viewer.layers['Segmentation'].data = self.segmentation
 
             # transfer the changes to the uncertainty layer
-            self.uncertainty[ind_add] = uncertainty
-            self.uncertainty[ind_del] = 0.0
+            self.uncertainty[index_add] = uncertainty
+            self.uncertainty[index_del] = 0.0
 
             segment['done'] = True              # mark this area as treated
 
@@ -681,7 +678,7 @@ class VessQC(QWidget):
                 file.close()
 
         if self.areas == []:
-            self.build_areas()          # define areas
+            self.build_areas(self.uncertainty)      # define areas
 
     def final_segmentation(self):
         """
