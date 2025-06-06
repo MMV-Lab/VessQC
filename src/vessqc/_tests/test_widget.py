@@ -4,6 +4,7 @@
 import pytest
 import napari
 import numpy as np
+import builtins
 from unittest import mock
 from unittest.mock import patch
 from pathlib import Path
@@ -62,21 +63,12 @@ def uncertainty_new():
 @pytest.fixture
 def segment4_data():
     # (20.09.2024)
-    return imread(PARENT / 'Segment4.tif')
+    return imread(PARENT / 'Segment_4.tif')
 
 @pytest.fixture
 def segment4_new():
     # (24.09.2024)
-    return imread(PARENT / 'Segment4_new.tif')
-
-@pytest.fixture
-def labels_data():
-    # (05.06.2025)
-    filename = PARENT / '_Labels.npy'
-    file = open(filename, 'rb')
-    labels = np.load(file)
-    file.close()
-    return labels
+    return imread(PARENT / 'Segment_4_new.tif')
 
 @pytest.fixture
 def areas(vessqc, uncertainty_data):
@@ -140,7 +132,7 @@ def test_build_areas(vessqc, uncertainty_data):
     vessqc.build_areas(uncertainty_data)
 
     assert len(vessqc.areas) == 9
-    assert vessqc.areas[0]['name'] == 'Segment 1'
+    assert vessqc.areas[0]['name'] == 'Segment_1'
     assert vessqc.areas[1]['label'] == 3
     assert vessqc.areas[2]['uncertainty'] == np.float32(0.4)
     assert vessqc.areas[3]['counts'] == 34
@@ -184,7 +176,7 @@ def test_popup_window(mock_show_widget, vessqc, areas):
     item_1 = grid_layout.itemAtPosition(5, 1)
     item_2 = grid_layout.itemAtPosition(5, 2)
     item_3 = grid_layout.itemAtPosition(5, 3)
-    assert item_0.widget().text() == 'Segment 5'
+    assert item_0.widget().text() == 'Segment_5'
     assert item_1.widget().text() == '0.60000'
     assert item_2.widget().text() == '37'
     assert item_3.widget().text() == 'done'
@@ -196,13 +188,13 @@ def test_popup_window(mock_show_widget, vessqc, areas):
 def test_new_entry(vessqc, areas):
     # (18.09.2024)
     grid_layout = QGridLayout()
-    vessqc.new_entry(areas[2], grid_layout, 2)
-    item_0 = grid_layout.itemAtPosition(2, 0)
-    item_1 = grid_layout.itemAtPosition(2, 1)
-    item_2 = grid_layout.itemAtPosition(2, 2)
-    item_3 = grid_layout.itemAtPosition(2, 3)
+    vessqc.new_entry(areas[2], grid_layout, 3)
+    item_0 = grid_layout.itemAtPosition(3, 0)
+    item_1 = grid_layout.itemAtPosition(3, 1)
+    item_2 = grid_layout.itemAtPosition(3, 2)
+    item_3 = grid_layout.itemAtPosition(3, 3)
 
-    assert grid_layout.rowCount() == 3
+    assert grid_layout.rowCount() == 4
     assert grid_layout.columnCount() == 4
     assert isinstance(item_0, QWidgetItem)
     assert isinstance(item_0.widget(), QPushButton)
@@ -210,7 +202,7 @@ def test_new_entry(vessqc, areas):
     assert isinstance(item_2.widget(), QLabel)
     assert isinstance(item_3.widget(), QPushButton)
 
-    assert item_0.widget().text() == 'Segment 3'
+    assert item_0.widget().text() == 'Segment_3'
     assert item_1.widget().text() == '0.40000'
     assert item_2.widget().text() == '35'
     assert item_3.widget().text() == 'done'
@@ -221,9 +213,15 @@ def test_show_area(vessqc, areas, segment4_data):
     # (20.09.2024)
     vessqc.areas = areas
 
-    # Here I simulate a mouse click on button1
-    button1 = QPushButton('Segment 4')
+    # Define button1 to call vessqc.show_area()
+    widget = QWidget()
+    layout = QVBoxLayout()
+    widget.setLayout(layout)
+    button1 = QPushButton('Segment_4')
     button1.clicked.connect(vessqc.show_area)
+    layout.addWidget(button1)
+
+    # Here I simulate a mouse click on button1
     QTest.mouseClick(button1, Qt.LeftButton)
 
     segment = areas[3]
@@ -232,10 +230,10 @@ def test_show_area(vessqc, areas, segment4_data):
     assert vessqc.viewer.dims.current_step == com
     assert vessqc.viewer.camera.center == com
 
-    if any(layer.name == 'Segment 4' and isinstance(layer, napari.layers.Labels)
+    if any(layer.name == 'Segment_4' and isinstance(layer, napari.layers.Labels)
         for layer in vessqc.viewer.layers):
-        layer = vessqc.viewer.layers['Segment 4']
-        assert layer.name == 'Segment 4'
+        layer = vessqc.viewer.layers['Segment_4']
+        assert layer.name == 'Segment_4'
         assert layer.selected_label == 6
         assert np.array_equal(layer.data, segment4_data)
     else:
@@ -244,10 +242,10 @@ def test_show_area(vessqc, areas, segment4_data):
     # 2nd click on button1
     QTest.mouseClick(button1, Qt.LeftButton)
 
-    if any(layer.name == 'Segment 4' and isinstance(layer, napari.layers.Labels)
+    if any(layer.name == 'Segment_4' and isinstance(layer, napari.layers.Labels)
         for layer in vessqc.viewer.layers):
-        layer = vessqc.viewer.layers['Segment 4']
-        assert layer.name == 'Segment 4'
+        layer = vessqc.viewer.layers['Segment_4']
+        assert layer.name == 'Segment_4'
     else:
         assert False
 
@@ -264,16 +262,32 @@ def test_transfer(mock_show_widget, vessqc, segmentation_data, segmentation_new,
         name='Segmentation')
     vessqc.areas = areas
 
-    # press button1 'Segment 4' to call vessqc.show_area()
-    button1 = QPushButton('Segment 4')
+    # Define three buttons to call vessqc.show_area(), vessqc.done() and
+    # vessqc.restore()
+    widget = QWidget()
+    layout = QVBoxLayout()
+    widget.setLayout(layout)
+
+    button1 = QPushButton('Segment_4')
     button1.clicked.connect(vessqc.show_area)
+    layout.addWidget(button1)
+
+    button2 = QPushButton('done', objectName='Segment_4')
+    button2.clicked.connect(vessqc.done)
+    layout.addWidget(button2)
+
+    button3 = QPushButton('restore', objectName='Segment_4')
+    button3.clicked.connect(vessqc.restore)
+    layout.addWidget(button3)
+
+    # press button1 'Segment_4' to call vessqc.show_area()
     QTest.mouseClick(button1, Qt.LeftButton)
 
-    # search for the Napari layer "Segment 4" and change its data
-    if any(layer.name == 'Segment 4' and isinstance(layer, napari.layers.Labels)
+    # search for the Napari layer "Segment_4" and change its data
+    if any(layer.name == 'Segment_4' and isinstance(layer, napari.layers.Labels)
         for layer in vessqc.viewer.layers):
-        layer = vessqc.viewer.layers['Segment 4']
-        assert layer.name == 'Segment 4'
+        layer = vessqc.viewer.layers['Segment_4']
+        assert layer.name == 'Segment_4'
         assert layer.selected_label == 6
         assert np.array_equal(layer.data, segment4_data)
 
@@ -282,9 +296,7 @@ def test_transfer(mock_show_widget, vessqc, segmentation_data, segmentation_new,
     else:
         assert False
 
-    # press button2 'done' to call vessqc.done()
-    button2 = QPushButton('done', objectName='Segment 4')
-    button2.clicked.connect(vessqc.done)
+    # press button2 to call vessqc.done()
     QTest.mouseClick(button2, Qt.LeftButton)
 
     # the data in the Napari layers Prediction and Uncertainty should have
@@ -294,27 +306,22 @@ def test_transfer(mock_show_widget, vessqc, segmentation_data, segmentation_new,
     assert np.array_equal(vessqc.uncertainty,  uncertainty_new)
     assert areas[3]['done'] == True
 
-    # the Napari layer 'Segment 4' is removed
-    if any(layer.name == 'Segment 4' and isinstance(layer, napari.layers.Labels)
+    # the Napari layer 'Segment_4' is removed
+    if any(layer.name == 'Segment_4' and isinstance(layer, napari.layers.Labels)
         for layer in vessqc.viewer.layers):
         assert False
 
-    # press button 'restore' to call vessqc.restore()
-    button3 = QPushButton('restore', objectName='Segment 4')
-    button3.clicked.connect(vessqc.restore)
+    # press button3 to call vessqc.restore()
     QTest.mouseClick(button3, Qt.LeftButton)
-
     assert areas[3]['done'] == False
 
 
 # tmp_path is a pytest fixture (see lab book from 27.09.2024)
 @pytest.mark.save
-def test_save(tmp_path, vessqc, segmentation_data, uncertainty_data,
-    labels_data):
+def test_save(tmp_path, vessqc, segmentation_data, uncertainty_data):
     # (27.09.2024)
     vessqc.segmentation = segmentation_data
     vessqc.uncertainty  = uncertainty_data
-    vessqc.labels       = labels_data
     vessqc.parent       = tmp_path
     vessqc.btn_save()
 
@@ -326,18 +333,12 @@ def test_save(tmp_path, vessqc, segmentation_data, uncertainty_data,
     loaded_data = np.load(str(filename))
     np.testing.assert_array_equal(loaded_data, uncertainty_data)
 
-    filename = tmp_path / '_Labels.npy'
-    loaded_data = np.load(str(filename))
-    np.testing.assert_array_equal(loaded_data, labels_data)
-
 
 @pytest.mark.save_with_exc
-def test_save_with_exc(tmp_path, vessqc, segmentation_data,
-    uncertainty_data, labels_data):
+def test_save_with_exc(tmp_path, vessqc):
     # (27.09.2024)
-    vessqc.segmentation = segmentation_data
-    vessqc.uncertainty  = uncertainty_data
-    vessqc.labels       = labels_data
+    vessqc.segmentation = np.ones((3, 3, 3), dtype=int)
+    vessqc.uncertainty  = np.ones((3, 3, 3))
     vessqc.parent       = tmp_path
 
     # Simulate an exception when opening the file
@@ -345,7 +346,7 @@ def test_save_with_exc(tmp_path, vessqc, segmentation_data,
          mock.patch("qtpy.QtWidgets.QMessageBox.warning") as mock_warning:
         vessqc.btn_save()
 
-    assert mock_warning.call_count == 3
+    assert mock_warning.call_count == 2
 
     filename = tmp_path / '_Segmentation.npy'
     assert not filename.exists()
@@ -353,17 +354,14 @@ def test_save_with_exc(tmp_path, vessqc, segmentation_data,
     filename = tmp_path / '_Uncertainty.npy'
     assert not filename.exists()
 
-    filename = tmp_path / '_Labels.npy'
-    assert not filename.exists()
-
 
 @pytest.mark.reload
-def test_reload(tmp_path, vessqc, segmentation_data, uncertainty_data,
-    labels_data):
+def test_reload(tmp_path, vessqc, segmentation_data, uncertainty_data):
     # (01.10.2024)
     vessqc.parent = tmp_path
-    vessqc.areas = [None]
+    vessqc.areas = []
 
+    # 1st: save the segmentation data
     filename = tmp_path / '_Segmentation.npy'
     try:
         file = open(filename, 'wb')
@@ -375,6 +373,7 @@ def test_reload(tmp_path, vessqc, segmentation_data, uncertainty_data,
         if 'file' in locals() and file:
             file.close()
 
+    #2nd: save the uncertainty data
     filename = tmp_path / '_Uncertainty.npy'
     try:
         file = open(filename, 'wb')
@@ -386,52 +385,51 @@ def test_reload(tmp_path, vessqc, segmentation_data, uncertainty_data,
         if 'file' in locals() and file:
             file.close()
 
-    filename = tmp_path / '_Labels.npy'
-    try:
-        file = open(filename, 'wb')
-        np.save(file, labels_data)
-    except BaseException as error:
-        print('Error:', error)
-        assert False
-    finally:
-        if 'file' in locals() and file:
-            file.close()
-
     vessqc.reload()
 
-    """
-    # test vessqc.areas
-    assert len(vessqc.areas) == 10
-    assert vessqc.areas[0]['name'] == 'Segment 1'
-    assert vessqc.areas[1]['uncertainty'] == np.float32(0.3)
-    assert vessqc.areas[2]['counts'] == 35
-    assert vessqc.areas[3]['com'] == None
-    assert vessqc.areas[4]['site'] == None
-    assert vessqc.areas[5]['done'] == False
-    """
-
-    # test the content of the Napari layers
+    # Test the content of the Napari layer and vessqc nD arrays
     assert len(vessqc.viewer.layers) == 1
-    layer0 = vessqc.viewer.layers[0]
-    assert layer0.name == 'Segmentation'
-    np.testing.assert_array_equal(layer0.data,         segmentation_data)
+    layer = vessqc.viewer.layers[0]
+    assert layer.name == 'Segmentation'
+    np.testing.assert_array_equal(layer.data,          segmentation_data)
     np.testing.assert_array_equal(vessqc.segmentation, segmentation_data)
     np.testing.assert_array_equal(vessqc.uncertainty,  uncertainty_data)
-    np.testing.assert_array_equal(vessqc.labels,       labels_data)
+
+    # Test vessqc.areas
+    assert len(vessqc.areas) == 9
+    assert vessqc.areas[0]['name'] == 'Segment_1'
+    assert vessqc.areas[1]['label'] == 3
+    assert vessqc.areas[2]['uncertainty'] == np.float32(0.4)
+    assert vessqc.areas[3]['counts'] == 34
+    assert vessqc.areas[4]['com'] == None
+    assert vessqc.areas[5]['site'] == None
+    assert vessqc.areas[6]['done'] == False
 
 
 @pytest.mark.reload_with_exc
 def test_reload_with_exc(tmp_path, vessqc):
     # (01.10.2024)
-    vessqc.parent = tmp_path
-    vessqc.areas = [None]
+    vessqc.segmentation = np.ones((3, 3, 3), dtype=int)
+    vessqc.uncertainty  = np.ones((3, 3, 3))
+    vessqc.parent       = tmp_path
+    vessqc.areas        = []
+
+    real_open = builtins.open       # Save original
+
+    def open_side_effect(file, *args, **kwargs):
+        # Suggestion from ChatGPT
+        if '_Segmentation.npy' in str(file) or '_Uncertainty.npy' in str(file):
+            raise OSError("File error")
+        return real_open(file, *args, **kwargs)
 
     # simulate an exception when opening the file
-    with mock.patch("builtins.open", side_effect=OSError("File error")):
+    with mock.patch("builtins.open", side_effect=open_side_effect), \
+         mock.patch("qtpy.QtWidgets.QMessageBox.warning") as mock_warning:
         vessqc.reload()
 
+    assert mock_warning.call_count == 1
     assert len(vessqc.viewer.layers) == 0
-    assert vessqc.areas == [None]
+    assert vessqc.areas == []
 
 
 @pytest.mark.final_segmentation

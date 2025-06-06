@@ -353,7 +353,7 @@ class VessQC(QWidget):
         self.areas = []
         for label in all_labels:
             segment = {
-                'name': 'Segment %d' % (i),
+                'name': 'Segment_%d' % (i),
                 'label': label,
                 'uncertainty': uncert_values[label],
                 'counts': counts[label],
@@ -473,13 +473,13 @@ class VessQC(QWidget):
         """ Show the data for a specific segment in a new label layer """
 
         # (29.05.2024)
-        name = self.sender().text()     # text of the button: Segment n
+        name = self.sender().text()     # text of the button: Segment_n
         hit = [d for d in self.areas if d.get('name') == name]  # d == dict.
         segment = hit[0]
         label = segment['label']        # segment label
         com = segment['com']            # center of mass
 
-        # Check whether the layer 'Segment n' already exists
+        # Check whether the layer 'Segment_n' already exists
         if any(layer.name == name and isinstance(layer, napari.layers.Labels)
             for layer in self.viewer.layers):
             layer = self.viewer.layers[name]
@@ -522,7 +522,7 @@ class VessQC(QWidget):
         name = self.sender().objectName()   # name of the object: SEgment n
         self.compare_and_transfer(name)     # transfer of data
         layer = self.viewer.layers[name]
-        self.viewer.layers.remove(layer)    # delete the layer 'Segment n'
+        self.viewer.layers.remove(layer)    # delete the layer 'Segment_n'
         self.show_popup_window()            # open a new pop-up window
 
     def restore(self):
@@ -543,7 +543,7 @@ class VessQC(QWidget):
         Parameters
         ----------
         name : str
-            Name of the segment (e.g. 'Segment 5')
+            Name of the segment (e.g. 'Segment_5')
         """
 
         # (09.08.2024)
@@ -587,7 +587,6 @@ class VessQC(QWidget):
         # 1st: save the segmentation data
         filename = self.parent / '_Segmentation.npy'
         print('Save', filename)
-
         try:
             file = open(filename, 'wb')
             np.save(file, self.segmentation)
@@ -600,23 +599,9 @@ class VessQC(QWidget):
         #2nd: save the uncertainty data
         filename = self.parent / '_Uncertainty.npy'
         print('Save', filename)
-
         try:
             file = open(filename, 'wb')
             np.save(file, self.uncertainty)
-        except BaseException as error:
-            QMessageBox.warning(self, 'I/O Error:', str(error))
-        finally:
-            if 'file' in locals() and file:
-                file.close()
-
-        # 3rd: save the labels
-        filename = self.parent / '_Labels.npy'
-        print('Save', filename)
-
-        try:
-            file = open(filename, 'wb')
-            np.save(file, self.labels)
         except BaseException as error:
             QMessageBox.warning(self, 'I/O Error:', str(error))
         finally:
@@ -630,7 +615,6 @@ class VessQC(QWidget):
         # 1st: read the segmentation data
         filename = self.parent / '_Segmentation.npy'
         print('Read', filename)
-        
         try:
             file = open(filename, 'rb')
             self.segmentation = np.load(file)
@@ -642,34 +626,20 @@ class VessQC(QWidget):
                 file.close()
 
         # If the 'Segmentation' layer already exists'
-        if any(layer.name.startswith('Segmentation') and
+        if any(layer.name == 'Segmentation' and
             isinstance(layer, napari.layers.Labels)
             for layer in self.viewer.layers):
-            self.viewer.layers['Segmentation'].data = self.segmentation
+            layer = self.viewer.layers['Segmentation']
+            layer.data = self.segmentation
         else:
             self.viewer.add_labels(self.segmentation, name='Segmentation')
 
         # 2st: read the uncertainty data
         filename = self.parent / '_Uncertainty.npy'
         print('Read', filename)
-
         try:
             file = open(filename, 'rb')
             self.uncertainty = np.load(file)
-        except BaseException as error:
-            QMessageBox.warning(self, 'I/O Error:', str(error))
-            return
-        finally:
-            if 'file' in locals() and file:
-                file.close()
-
-        # 3rd: read the labels
-        filename = self.parent / '_Labels.npy'
-        print('Read', filename)
-
-        try:
-            file = open(filename, 'rb')
-            self.labels = np.load(file)
         except BaseException as error:
             QMessageBox.warning(self, 'I/O Error:', str(error))
             return
@@ -690,14 +660,14 @@ class VessQC(QWidget):
         # (13.08.2024)
         # 1st: close all open area layers
         lst = [layer for layer in self.viewer.layers
-            if layer.name.startswith('Segment ') and
+            if layer.name.startswith('Segment_') and
             isinstance(layer, napari.layers.Labels)]
 
         for layer in lst:
             name = layer.name
             print('Close areas', name)
             self.compare_and_transfer(name)
-            self.viewer.layers.remove(layer)    # delete the layer 'Segment n'
+            self.viewer.layers.remove(layer)    # delete the layer 'Segment_n'
 
         if hasattr(self, 'popup_window'):       # close the pop-up window
             self.popup_window.close()

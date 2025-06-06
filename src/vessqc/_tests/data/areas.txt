@@ -1,0 +1,11 @@
+areas = [
+{'name': 'Segment 1', 'label': 2, 'uncertainty': 0.2, 'counts': 37, 'com': None, 'site': None, 'done': False},
+{'name': 'Segment 2', 'label': 3, 'uncertainty': 0.3, 'counts': 34, 'com': None, 'site': None, 'done': False},
+{'name': 'Segment 3', 'label': 4, 'uncertainty': 0.4, 'counts': 35, 'com': None, 'site': None, 'done': False},
+{'name': 'Segment 4', 'label': 5, 'uncertainty': 0.5, 'counts': 34, 'com': None, 'site': None, 'done': False},
+{'name': 'Segment 5', 'label': 6, 'uncertainty': 0.6, 'counts': 37, 'com': None, 'site': None, 'done': False},
+{'name': 'Segment 6', 'label': 7, 'uncertainty': 0.7, 'counts': 34, 'com': None, 'site': None, 'done': False},
+{'name': 'Segment 7', 'label': 8, 'uncertainty': 0.8, 'counts': 35, 'com': None, 'site': None, 'done': False},
+{'name': 'Segment 8', 'label': 9, 'uncertainty': 0.9, 'counts': 12, 'com': None, 'site': None, 'done': False},
+{'name': 'Segment 9', 'label': 10, 'uncertainty': 0.5, 'counts': 1, 'com': None, 'site': None, 'done': False}
+]
