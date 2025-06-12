@@ -1,5 +1,5 @@
 """
-Module for the definition of the class VessQC
+Module for the definition of the class ExampleQWidget
 
 Imports
 -------
@@ -8,7 +8,7 @@ scipy.ndimage, SimpleITK, tifffile.imread, tifffile.imwrite
 
 Exports
 -------
-VessQC
+ExampleQWidget
 """
 
 # Copyright © Peter Lampen, ISAS Dortmund, 2024
@@ -41,7 +41,7 @@ if TYPE_CHECKING:
     import napari
 
 
-class VessQC(QWidget):
+class ExampleQWidget(QWidget):
     """
     Main widget of a Napari plugin for checking the calculation of blood vessels
 
@@ -155,7 +155,7 @@ class VessQC(QWidget):
         label3.setFont(font)
         self.layout().addWidget(label3)
 
-        btnUncertainty = QPushButton('Load uncertainty list')
+        btnUncertainty = QPushButton('Load segment list')
         btnUncertainty.clicked.connect(self.show_popup_window)
         self.layout().addWidget(btnUncertainty)
 
@@ -171,7 +171,7 @@ class VessQC(QWidget):
         label4.setAlignment(Qt.AlignHCenter)
         self.layout().addWidget(label4)
 
-        btnFinalSegmentation = QPushButton('Generate final segmentation')
+        btnFinalSegmentation = QPushButton('Save results')
         btnFinalSegmentation.clicked.connect(self.final_segmentation)
         self.layout().addWidget(btnFinalSegmentation)
 
@@ -198,10 +198,10 @@ class VessQC(QWidget):
             return
         else:
             path = Path(filename)
-            self.parent = path.parent          # The data directory
-            self.stem1 = path.stem             # Name of the input file
-            suffix = path.suffix.lower()       # File extension
-            # Truncate the .nii extension
+            self.parent = path.parent           # The data directory
+            self.stem1  = path.stem             # Name of the input file
+            suffix      = path.suffix.lower()   # File extension
+            # Truncate the extension .nii
             if suffix == '.gz' and self.stem1[-4:] == '.nii':
                 self.stem1 = self.stem1[:-4]
 
@@ -231,7 +231,7 @@ class VessQC(QWidget):
 
         # (23.05.2024, revised on 05.02.2025)
         # Search for the segmentation file
-        stem2 = self.stem1[:-3] + '_segPred'        # Replace '_IM' by '_segPred'
+        stem2 = self.stem1[:-3] + '_segPred'    # Replace '_IM' by '_segPred'
         path = self.parent / stem2
 
         if path.with_suffix('.tif').is_file():
@@ -665,7 +665,7 @@ class VessQC(QWidget):
 
         for layer in lst:
             name = layer.name
-            print('Close areas', name)
+            print('Close', name)
             self.compare_and_transfer(name)
             self.viewer.layers.remove(layer)    # delete the layer 'Segment_n'
 
@@ -682,7 +682,6 @@ class VessQC(QWidget):
             return
 
         # Save the segmentation data
-        filename = Path(filename)
         print('Save', filename)
         try:
             imwrite(filename, self.segmentation)
@@ -692,11 +691,10 @@ class VessQC(QWidget):
 
         # Save the uncertainty data
         if self.save_uncertainty:
-            filename2 = self.stem1[:-3] + '_uncNew.tif'
-            filename2 = filename.parent / filename2
-            print('Save', filename2)
+            filename = filename[:-11] + '_uncNew.tif'
+            print('Save', filename)
             try:
-                imwrite(filename2, self.uncertainty)
+                imwrite(filename, self.uncertainty)
             except BaseException as error:
                 QMessageBox.warning(self, 'I/O Error:', str(error))
 
