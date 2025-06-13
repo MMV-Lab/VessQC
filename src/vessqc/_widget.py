@@ -706,7 +706,7 @@ class ExampleQWidget(QWidget):
         else:
             self.save_uncertainty = False
 
-    def btn_info(self):     # pragma: no cover
+    def btn_info(self):
         """ Show information about the current layer """
 
         # (25.07.2024)
