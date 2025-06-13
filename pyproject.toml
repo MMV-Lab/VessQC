@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "VessQC"
-version = "0.6.1"
+version = "0.7.1"
 description = "Napari plugin for checking and correcting the segmentation"
 readme = "README.md"
 authors = [{name = "Peter Lampen", email = "lampen@isas.de"}]
@@ -63,7 +63,7 @@ where = ["src"]
 VessQC = "vessqc:napari.yaml"
 
 [tool.bumpversion]
-current_version = "0.6.1"
+current_version = "0.7.1"
 parse = "(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)"
 serialize = ["{major}.{minor}.{patch}"]
 search = "{current_version}"
