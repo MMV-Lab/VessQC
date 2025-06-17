@@ -1,10 +1,7 @@
-__version__ = "0.7.0"
+__version__ = "0.7.1"
 
-from ._widget import VessQC
-# from ._mv_widget import CrossWidget, MultipleViewerWidget
+from ._widget import ExampleQWidget
 
 __all__ = (
-    "VessQC",
-    # "CrossWidget",
-    # "MultipleViewerWidget",
+    "ExampleQWidget",
 )

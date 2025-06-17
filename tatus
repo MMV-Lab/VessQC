@@ -1,0 +1,615 @@
+[33mcommit bd6019a121bb19f1924a22d3dee5f0326720e279[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mstep7[m[33m, [m[1;31morigin/step7[m[33m)[m
+Author: Peter Lampen <lampen@isas.de>
+Date:   Thu Jun 12 11:38:07 2025 +0200
+
+    version 0.7.1
+
+[33mcommit 0b5a3ea0f2cb847470e0e747ca8ec541ba05dcbd[m
+Author: Peter Lampen <lampen@isas.de>
+Date:   Thu Jun 12 11:35:14 2025 +0200
+
+    Corrected test_widget.py (part IV)
+
+[33mcommit fa67159f85b0ab84c27fb7687e4496cf20d6e8f7[m
+Author: Peter Lampen <lampen@isas.de>
+Date:   Fri Jun 6 16:22:35 2025 +0200
+
+    Corrected test_widget (part III)
+
+[33mcommit 092d0caafbd024d956b603abed26017d1e470c0f[m
+Author: Peter Lampen <lampen@isas.de>
+Date:   Thu Jun 5 17:51:09 2025 +0200
+
+    Corrected test_widget.py (part II)
+
+[33mcommit f2e51e7b4dd4b7e3996c6cac85ea6299ee434b77[m
+Author: Peter Lampen <lampen@isas.de>
+Date:   Wed May 28 17:52:12 2025 +0200
+
+    Corrected test_widget.py
+
+[33mcommit 84d618ce954299f7fa1ac0e43ddc46f649c8a491[m
+Author: Peter Lampen <lampen@isas.de>
+Date:   Fri May 23 16:23:01 2025 +0200
+
+    Segmentation of the areas
+
+[33mcommit c5a7c134d58d3662170fd310c43b687f86b539ed[m
+Author: Peter Lampen <lampen@isas.de>
+Date:   Tue May 13 17:45:59 2025 +0200
+
+    MessageBox for info messages
+
+[33mcommit 36e14b9247311097ffd4865288112c783dc8d6b6[m[33m ([m[1;31morigin/main[m[33m, [m[1;32mmain[m[33m)[m
+Author: Peter Lampen <lampen@isas.de>
+Date:   Thu May 8 10:07:07 2025 +0200
+
+    modified pyproject.toml
+
+[33mcommit 2b28719c24f209cc2d989d3c595dee69da0152ff[m[33m ([m[1;33mtag: [m[1;33mv0.6.1[m[33m)[m
+Author: Peter Lampen <lampen@isas.de>
+Date:   Thu Mar 13 15:30:00 2025 +0100
+
+    New version number by bump-my-version
+
+[33mcommit eafa80a826c576a3232c2710fca339fbd03f74f1[m
+Author: Peter Lampen <lampen@isas.de>
+Date:   Thu Mar 13 14:57:49 2025 +0100
+
+    Modified pyproject.toml
+
+[33mcommit 973a43aee70e0d6affe2064913515b3f3b3eac9b[m
+Author: Peter Lampen <lampen@isas.de>
+Date:   Thu Mar 13 14:55:31 2025 +0100
+
+    Modified pyproject.toml
+
+[33mcommit 5be8de54d05187b953f8d6e66d19bd9ce9c97197[m
+Author: Peter Lampen <lampen@isas.de>
+Date:   Thu Mar 13 14:26:45 2025 +0100
+
+    3rd modification of config files
+
+[33mcommit ff351882b4886be156907066ad192672c1e5471d[m
+Author: Peter Lampen <lampen@isas.de>
+Date:   Thu Mar 13 14:16:48 2025 +0100
+
+    Again modified config files
+
+[33mcommit a1668743be088cb4ca9c2b068dc65d311a19df88[m
+Author: Peter Lampen <lampen@isas.de>
+Date:   Thu Mar 13 13:08:20 2025 +0100
+
+    Modified config files
+
+[33mcommit b88dba8f29a51040c738b00407020dd5341c3037[m
+Author: Peter Lampen <lampen@isas.de>
+Date:   Thu Feb 20 14:14:21 2025 +0100
+
+    requires-python = >=3.8
+
+[33mcommit 70119c5a7ae6c9fbd400c46c27564a4d96b5245b[m
+Author: Peter Lampen <lampen@isas.de>
+Date:   Wed Feb 19 11:19:43 2025 +0100
+
+    Remove Backup from repository
+
+[33mcommit 6a4b5aa000a5e5b6ea0e8e43aee0c90ce20be561[m
+Author: Peter Lampen <lampen@isas.de>
+Date:   Wed Feb 19 11:11:44 2025 +0100
+
+    delete import warnings
+
+[33mcommit efc00fb318dad50a88a9d214b193462a484f449a[m
+Merge: e36dd31 65a95aa
+Author: Peter Lampen <lampen@isas.de>
+Date:   Tue Feb 18 15:33:36 2025 +0100
+
+    Merge pull request #20 from MMV-Lab/step6
+    
+    Rename _tests/Data to _tests/data
+
+[33mcommit 65a95aaa94081a16dba6822597204bbcbeecdea8[m[33m ([m[1;31morigin/step6[m[33m)[m
+Author: Peter Lampen <lampen@isas.de>
+Date:   Tue Feb 18 15:17:05 2025 +0100
+
+    Rename _tests/Data to _tests/data
+
+[33mcommit e36dd313108a0e9d528cfb8e28b0e64a5dd12460[m
+Merge: 626f106 ee18ce2
+Author: Peter Lampen <lampen@isas.de>
+Date:   Fri Feb 14 18:13:00 2025 +0100
+
+    Merge pull request #19 from MMV-Lab/step6
+    
+    Step6
+
+[33mcommit ee18ce236573ea2ba248ded3a32120fd2c296325[m
+Author: Peter Lampen <lampen@isas.de>
+Date:   Fri Feb 14 18:11:20 2025 +0100
+
+    fixed unit tests
+
+[33mcommit 6c4f40fc901ca6928e68a3e3e722258eab3ce451[m
+Author: Peter Lampen <lampen@isas.de>
+Date:   Tue Feb 11 16:23:18 2025 +0100
+
+    corrected names for result files
+
+[33mcommit 78669c2ec4604a824e16b967b775edda560580bc[m
+Author: Peter Lampen <lampen@isas.de>
+Date:   Fri Feb 7 14:50:17 2025 +0100
+
+    test data
+
+[33mcommit 04769c3602e9a91ad73f187a7a75ad68f78b37d0[m
+Author: Peter Lampen <lampen@isas.de>
+Date:   Fri Feb 7 14:39:54 2025 +0100
+
+    fix error in function show_area()
+
+[33mcommit 41f21303633536f12fd09b8f36ccff813084dc83[m
+Author: Peter Lampen <lampen@isas.de>
+Date:   Fri Jan 17 16:50:21 2025 +0100
+
+    New naming schema
+
+[33mcommit 626f106fe283630cfbc5b6b6b377b697fb5452cb[m
+Merge: 0567171 ff02434
+Author: Peter Lampen <lampen@isas.de>
+Date:   Fri Nov 8 16:54:48 2024 +0100
+
+    Merge pull request #18 from MMV-Lab/step6
+    
+    modified __init__.py
+
+[33mcommit ff024342b362e162593b6f09dcb3a6599c3838c1[m
+Author: lampen <lampen@isas.de>
+Date:   Fri Nov 8 16:54:04 2024 +0100
+
+    modified __init__.py
+
+[33mcommit 056717133adf0bb1d7e46289edf999dd7171745c[m
+Merge: 93489ab a78c286
+Author: Peter Lampen <lampen@isas.de>
+Date:   Fri Nov 8 14:47:48 2024 +0100
+
+    Merge pull request #17 from MMV-Lab/step6
+    
+    fixed test_init
+
+[33mcommit a78c2865a2379cdd9f0c6c3d1c21a23e75a652b3[m
+Author: lampen <lampen@isas.de>
+Date:   Fri Nov 8 14:45:48 2024 +0100
+
+    fixed test_init
+
+[33mcommit 93489ab383c26098920db8fefcc59eaba55a371e[m
+Merge: 031bc8f 7a500a6
+Author: Peter Lampen <lampen@isas.de>
+Date:   Fri Nov 8 14:36:09 2024 +0100
+
+    Merge pull request #16 from MMV-Lab/step6
+    
+    Multiple viewer and dock widget are incompatible with Napari 0.5.4
+
+[33mcommit 7a500a6f7b87e952d84ef2ae72e567593036ee2f[m
+Author: lampen <lampen@isas.de>
+Date:   Fri Nov 8 14:34:42 2024 +0100
+
+    Multiple viewer and dock widget are incompatible with Napari 0.5.4
+
+[33mcommit 031bc8ff0f92c01a8d8eaced3021fa497ca0c05b[m
+Merge: 491318f 179ef55
+Author: Peter Lampen <lampen@isas.de>
+Date:   Thu Nov 7 17:03:05 2024 +0100
+
+    Merge pull request #15 from MMV-Lab/step6
+    
+    Everything back to the beginning
+
+[33mcommit 179ef55f2139ff42a9155140311745ff6b0e01e5[m
+Author: lampen <lampen@isas.de>
+Date:   Thu Nov 7 17:01:25 2024 +0100
+
+            platform: [ubuntu-latest, windows-latest, macos-latest]
+
+[33mcommit 491318f3bcf96e9d89d75b94fb0c665dcdc401ab[m
+Merge: 8792e16 dd3c942
+Author: Peter Lampen <lampen@isas.de>
+Date:   Thu Nov 7 15:47:53 2024 +0100
+
+    Merge pull request #14 from MMV-Lab/step6
+    
+    Tests without MacOS
+
+[33mcommit dd3c942a65a150779576d0a5e037dd1f74bbe5e7[m
+Author: lampen <lampen@isas.de>
+Date:   Thu Nov 7 15:46:28 2024 +0100
+
+    Tests without MacOS
+
+[33mcommit 8792e16cc2b2065490b9ea31acc440d74411926b[m
+Merge: 77474cd 096eaac
+Author: Peter Lampen <lampen@isas.de>
+Date:   Thu Nov 7 15:31:31 2024 +0100
+
+    Merge pull request #13 from MMV-Lab/step6
+    
+    pint version defined to 0.21.1, because the tests areis not running w…
+
+[33mcommit 096eaac0d0f80947fd942062dfc84448cfddbda1[m
+Author: lampen <lampen@isas.de>
+Date:   Thu Nov 7 15:27:40 2024 +0100
+
+    pint version defined to 0.21.1, because the tests areis not running with an other version
+
+[33mcommit 77474cda12c0b179dc86d6dd50cdb79a0fc64728[m
+Merge: 9d16141 b4ea380
+Author: Peter Lampen <lampen@isas.de>
+Date:   Thu Nov 7 14:52:27 2024 +0100
+
+    Merge pull request #12 from MMV-Lab/step6
+    
+    resolved merge conflict
+
+[33mcommit b4ea3809347e9dce7564e25ed66245589afc63ae[m
+Author: lampen <lampen@isas.de>
+Date:   Thu Nov 7 11:41:37 2024 +0100
+
+    resolved merge conflict
+
+[33mcommit 9d1614177f3f271006d30eafcff24e4f94409440[m
+Merge: e6e2c5b 6236c7f
+Author: Peter Lampen <lampen@isas.de>
+Date:   Wed Nov 6 16:41:38 2024 +0100
+
+    Merge pull request #10 from MMV-Lab/step6
+    
+    changed github workflow
+
+[33mcommit 6236c7f7dadb64d980332975fdc3c1e20a81c6a3[m
+Author: lampen <lampen@isas.de>
+Date:   Wed Nov 6 16:39:50 2024 +0100
+
+    changed github workflow
+
+[33mcommit e6e2c5b0218bdda5fa42eac22afab31e901687c1[m
+Merge: c211dea 66ff55e
+Author: Peter Lampen <lampen@isas.de>
+Date:   Wed Nov 6 14:59:55 2024 +0100
+
+    Merge pull request #9 from MMV-Lab/step6
+    
+    Step6
+
+[33mcommit 66ff55ed76272a329213ac27dac4312d301b3503[m
+Author: lampen <lampen@isas.de>
+Date:   Wed Nov 6 14:58:35 2024 +0100
+
+    Additional docstrings for methods
+
+[33mcommit 43a1712f7e209c58e97c02cee98aa80fb3faa184[m
+Author: lampen <lampen@isas.de>
+Date:   Thu Oct 31 16:48:45 2024 +0100
+
+    docstrings for the methods
+
+[33mcommit 6bdf19da13d2ea007b0809c4058f6f3982dc28fc[m
+Author: lampen <lampen@isas.de>
+Date:   Wed Oct 30 18:08:50 2024 +0100
+
+    New docstrings
+
+[33mcommit c211deaaac3f0a0d616df6c21ec0293df69b0ab3[m
+Merge: d03546d 22fe869
+Author: Peter Lampen <102793017+PLampen@users.noreply.github.com>
+Date:   Wed Oct 2 18:29:00 2024 +0200
+
+    Merge pull request #8 from MMV-Lab/step5
+    
+    Step5
+
+[33mcommit 22fe869ea69d84bfbbc8af5f0a48aa7b17c21361[m[33m ([m[1;31morigin/step5[m[33m)[m
+Author: lampen <lampen@isas.de>
+Date:   Wed Oct 2 18:27:33 2024 +0200
+
+    New function test_final_seg_with_exc()
+
+[33mcommit b17acf164f4bd4102bf622bd71d749923882864a[m
+Author: lampen <lampen@isas.de>
+Date:   Tue Oct 1 17:02:26 2024 +0200
+
+    test_reload(), test_reload_with_exception() and test_final_segmentation()
+
+[33mcommit 57ac022a8049678f1b6013876a26d234fae95fa5[m
+Author: lampen <lampen@isas.de>
+Date:   Fri Sep 27 16:23:13 2024 +0200
+
+    New functions test_save() and test_save_with_exception()
+
+[33mcommit 2bfd06b5f838d26a2c2fa5afcecd5eb3e39eb2cb[m
+Author: lampen <lampen@isas.de>
+Date:   Thu Sep 26 18:15:44 2024 +0200
+
+    Press button 'restore'
+
+[33mcommit 205f7e39cf57efd9c2615f3640185f6a15b11ff5[m
+Author: lampen <lampen@isas.de>
+Date:   Wed Sep 25 17:47:24 2024 +0200
+
+    improved function test_transfer()
+
+[33mcommit 219c1c23d924ed8f1191fec4b75ec870659efb43[m
+Author: lampen <lampen@isas.de>
+Date:   Tue Sep 24 17:38:29 2024 +0200
+
+    New function test_transfer() (half done)
+
+[33mcommit 3fd15e82b971abe13230d78e5b1a9f43b9935321[m
+Author: lampen <lampen@isas.de>
+Date:   Fri Sep 20 16:23:01 2024 +0200
+
+    New function test_show_area()
+
+[33mcommit e0f9ee590a6220b82afbd7e479336ab204abcc4c[m
+Author: lampen <lampen@isas.de>
+Date:   Thu Sep 19 16:12:33 2024 +0200
+
+    improved function test_uncertainty()
+
+[33mcommit d03546d74d89ee5c1877ebb6a24aa3f890ce7c55[m
+Merge: 03ebcea f6daada
+Author: Peter Lampen <102793017+PLampen@users.noreply.github.com>
+Date:   Wed Sep 18 17:10:42 2024 +0200
+
+    Merge pull request #7 from MMV-Lab/step5
+    
+    Step5
+
+[33mcommit f6daadafc8d50ba215a4f1acbecd46e9dd48832e[m
+Author: lampen <lampen@isas.de>
+Date:   Wed Sep 18 17:06:00 2024 +0200
+
+    new fixture areas() and function test_new_entry()
+
+[33mcommit c63496e66dadbabba57653b9f88fa19c8368913b[m
+Author: lampen <lampen@isas.de>
+Date:   Tue Sep 17 17:48:04 2024 +0200
+
+    New functions test_build_areas() and test_btn_uncertainty()
+
+[33mcommit 62502d4d20f68982c81de90bece34587665457e6[m
+Author: lampen <lampen@isas.de>
+Date:   Tue Sep 17 14:12:02 2024 +0200
+
+    bug fix
+
+[33mcommit cdd6a369b017876c98f52d58686ba1ffa1b44407[m
+Author: lampen <lampen@isas.de>
+Date:   Fri Sep 13 17:32:43 2024 +0200
+
+    New test_btn_segmentation()
+
+[33mcommit 9b48bb03ff49d68e14ea4e08b0996ede60174fd4[m
+Author: lampen <lampen@isas.de>
+Date:   Fri Sep 13 10:43:53 2024 +0200
+
+    New test_widget.py
+
+[33mcommit 7eda013b4f14a516014f7ff6e7bea4f4904ff01a[m
+Author: lampen <lampen@isas.de>
+Date:   Tue Sep 10 17:14:48 2024 +0200
+
+    Read TIFF files
+
+[33mcommit 03ebcea0c51f7bd89df6dc09ffa9bca5e91a02c9[m
+Merge: bf6ff0d 3dfd888
+Author: Peter Lampen <102793017+PLampen@users.noreply.github.com>
+Date:   Thu Sep 5 17:58:08 2024 +0200
+
+    Merge pull request #6 from MMV-Lab/step5
+    
+    Step5
+
+[33mcommit 3dfd888f254170dd94e66e1eb860147f6158f8c7[m
+Author: lampen <lampen@isas.de>
+Date:   Thu Sep 5 17:34:48 2024 +0200
+
+    Cleaning up
+
+[33mcommit 54a5cf793531f6f6a6303b1399d1b429327869aa[m
+Author: lampen <lampen@isas.de>
+Date:   Wed Sep 4 17:39:42 2024 +0200
+
+    show each area only once
+
+[33mcommit bf6ff0dfff9b01482ccd3f1e6f5513e95d1dd23b[m
+Merge: f651939 3fbe67a
+Author: Peter Lampen <102793017+PLampen@users.noreply.github.com>
+Date:   Thu Aug 29 10:24:24 2024 +0200
+
+    Merge pull request #5 from MMV-Lab/step4
+    
+    Step4
+
+[33mcommit 3fbe67acadbaf5791beedef9272bbebd644dd6dd[m[33m ([m[1;31morigin/step4[m[33m)[m
+Author: lampen <lampen@isas.de>
+Date:   Thu Aug 29 10:18:49 2024 +0200
+
+    Save uncertainty in TIFF format
+
+[33mcommit 907063912befa372ef49ee7d9e145828258565cc[m
+Author: lampen <lampen@isas.de>
+Date:   Fri Aug 16 16:52:36 2024 +0200
+
+    New function btn_final_seg()
+
+[33mcommit b8f6eef68f948c21c351acad18a2c460cfce6ae7[m
+Author: lampen <lampen@isas.de>
+Date:   Fri Aug 9 17:17:39 2024 +0200
+
+    New function build_areas()
+
+[33mcommit f651939200e890aea7db8deb47979921f9cbd1d3[m
+Merge: bb115c9 57bda88
+Author: Peter Lampen <102793017+PLampen@users.noreply.github.com>
+Date:   Fri Aug 9 15:05:12 2024 +0200
+
+    Merge pull request #4 from MMV-Lab/step3
+    
+    Step3
+
+[33mcommit 57bda8851dc4461a63649945be962844e80fa152[m[33m ([m[1;31morigin/step3[m[33m)[m
+Author: lampen <lampen@isas.de>
+Date:   Fri Aug 9 15:01:57 2024 +0200
+
+    New function 'compare_and_transfer()'
+
+[33mcommit a8955f5110876b1c09399525e818bcd0951e7bc5[m
+Author: lampen <lampen@isas.de>
+Date:   Wed Aug 7 17:07:14 2024 +0200
+
+    Prediction and Uncertainty import in tiff and nii.gz format
+
+[33mcommit 00671eca8036e37d5d364718fa295c959626c23b[m
+Author: lampen <lampen@isas.de>
+Date:   Tue Aug 6 16:35:21 2024 +0200
+
+    TIFF File input
+
+[33mcommit 68e50f82fa98a422c24f2fd837baf1259768dca3[m
+Author: lampen <lampen@isas.de>
+Date:   Fri Aug 2 16:05:12 2024 +0200
+
+    Save and reload intermediate curation
+
+[33mcommit bb115c92c80086a3964412c96a7e3ee9ab6124fb[m
+Merge: 1a03064 42e68d4
+Author: Peter Lampen <102793017+PLampen@users.noreply.github.com>
+Date:   Fri Jul 26 16:47:42 2024 +0200
+
+    Merge pull request #3 from MMV-Lab/step3
+    
+    Step3
+
+[33mcommit 42e68d4db3f9e287484a0a3726bcb2ea2bbca07a[m
+Author: lampen <lampen@isas.de>
+Date:   Fri Jul 26 16:42:50 2024 +0200
+
+    transfer of data from areas to prediction
+
+[33mcommit 6637bdda2fed1b4c93fd7648c0bbbfce0ab7e973[m
+Author: lampen <lampen@isas.de>
+Date:   Wed Jul 24 15:34:35 2024 +0200
+
+    cleaning up
+
+[33mcommit a6b06c20602fd8b826cf549b4443730928622133[m
+Author: lampen <lampen@isas.de>
+Date:   Wed Jul 24 11:40:22 2024 +0200
+
+    Save areas as npz files
+
+[33mcommit 062081c6b2f958b9f9b459945e35516a50cb2d48[m
+Author: lampen <lampen@isas.de>
+Date:   Fri Jul 19 16:02:13 2024 +0200
+
+    Areas may be marked as treated
+
+[33mcommit 6da31315e7ede1f4cafbf113e2dd3d5f30619386[m
+Author: lampen <lampen@isas.de>
+Date:   Fri Jul 5 17:06:40 2024 +0200
+
+    Show each area only once
+
+[33mcommit f7807c5fb498077750de5c2d0f64593fe3fc97b0[m
+Author: lampen <lampen@isas.de>
+Date:   Wed Jul 3 16:06:16 2024 +0200
+
+    'viewer.dims.current_step = centroid' included
+
+[33mcommit 1a03064b8e22d0fd00d02216b40e3b5ca160abd0[m
+Merge: c0a2b16 f77a2cb
+Author: Peter Lampen <102793017+PLampen@users.noreply.github.com>
+Date:   Fri Jun 21 15:25:08 2024 +0200
+
+    Merge pull request #2 from MMV-Lab/step2
+    
+    Step2
+
+[33mcommit f77a2cba4c738ccecbc1fc02496271061b3b6249[m[33m ([m[1;31morigin/step2[m[33m)[m
+Author: lampen <lampen@isas.de>
+Date:   Fri Jun 21 15:19:44 2024 +0200
+
+    Example widget commented out
+
+[33mcommit 9e47a6f3ebd1e00dd446ff05843745ef88cbf53e[m
+Author: lampen <lampen@isas.de>
+Date:   Fri Jun 21 13:49:58 2024 +0200
+
+    Add multiple_viewer_widget.py
+
+[33mcommit 6c2f38144b35001d75b215ead9ec7ee453a24b10[m
+Author: lampen <lampen@isas.de>
+Date:   Thu Jun 6 17:10:28 2024 +0200
+
+    modified file test_and_deploy.yml
+
+[33mcommit c0a2b162a7b3dfca48917b831c4d28e1f13f6486[m
+Merge: ab46e2c b85eea0
+Author: Peter Lampen <102793017+PLampen@users.noreply.github.com>
+Date:   Thu Jun 6 15:40:04 2024 +0200
+
+    Merge pull request #1 from MMV-Lab/step1
+    
+    Step1
+
+[33mcommit b85eea0ff8eb96f3ee38d2d07497a07cf441205b[m[33m ([m[1;31morigin/step1[m[33m)[m
+Author: lampen <lampen@isas.de>
+Date:   Thu Jun 6 15:31:27 2024 +0200
+
+    revised function btn_uncertainty()
+
+[33mcommit 88c2309eeab6e23f39d21574543ff8149d02deac[m
+Author: lampen <lampen@isas.de>
+Date:   Thu Jun 6 11:41:37 2024 +0200
+
+    New version of button_clicked()
+
+[33mcommit 37998fad72fab3f8933452de3190e26e2347d913[m
+Author: lampen <lampen@isas.de>
+Date:   Tue Jun 4 17:48:56 2024 +0200
+
+    New function: btn_uncertainty
+
+[33mcommit faeed09cd63f58b3c13833ac593fa14191eaced6[m
+Author: lampen <lampen@isas.de>
+Date:   Fri May 24 12:34:44 2024 +0200
+
+    First draft
+
+[33mcommit ab46e2c1f18be12e490ee8da80b4d42213a88b38[m
+Author: lampen <lampen@isas.de>
+Date:   Tue May 7 14:49:24 2024 +0200
+
+    delete some files
+
+[33mcommit 752c27e207747f865fb403d325304c1676ab9544[m
+Merge: b350977 088ad94
+Author: lampen <lampen@isas.de>
+Date:   Tue May 7 14:43:32 2024 +0200
+
+    new names for some files
+
+[33mcommit 088ad943b5411890159b487ff395e149afcd74c9[m
+Author: Peter Lampen <102793017+PLampen@users.noreply.github.com>
+Date:   Fri May 3 16:37:18 2024 +0200
+
+    Initial commit
+
+[33mcommit b350977a7df35df28dcbb40c8b6cc3c6b301b172[m
+Author: lampen <lampen@isas.de>
+Date:   Fri May 3 16:16:52 2024 +0200
+
+    initial commit
