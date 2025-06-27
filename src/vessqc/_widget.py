@@ -310,7 +310,7 @@ class ExampleQWidget(QWidget):
         unique_values = np.unique(uncertainty)
         unique_values = unique_values[unique_values > 0]    # Values > 0
 
-        tolerance = 1e-5            # Tolerance, if necessary
+        tolerance = 1e-2            # Tolerance, if necessary
         uncert_values = [0.0]       # List of all uncertanty values
         self.labels = np.zeros_like(uncertainty, dtype=int) # result array
         current_label = 0           # offset for labels
@@ -329,6 +329,7 @@ class ExampleQWidget(QWidget):
             # Save the uncertainty value for each label
             uncert_values.extend([value] * num)
 
+        print('done')
         # Count how often each label appears
         counts = np.bincount(self.labels.ravel())
 
@@ -389,7 +390,8 @@ class ExampleQWidget(QWidget):
         grid_layout.addWidget(QLabel('Segment'), 0, 0)
         grid_layout.addWidget(QLabel('Uncertainty'), 0, 1)
         grid_layout.addWidget(QLabel('Counts'), 0, 2)
-        grid_layout.addWidget(QLabel('done'), 0, 3)
+        grid_layout.addWidget(QLabel('Zoom in'), 0, 3)
+        grid_layout.addWidget(QLabel('done'), 0, 4)
 
         # Define buttons and select values for some labels
         i = 1
@@ -413,7 +415,8 @@ class ExampleQWidget(QWidget):
         grid_layout.addWidget(QLabel('Segment'), i, 0)
         grid_layout.addWidget(QLabel('Uncertainty'), i, 1)
         grid_layout.addWidget(QLabel('Counts'), i, 2)
-        grid_layout.addWidget(QLabel('restore'), i, 3)
+        grid_layout.addWidget(QLabel('Zoom in'), i, 3)
+        grid_layout.addWidget(QLabel('restore'), i, 4)
         i += 1
 
         for segment in self.areas:
@@ -461,13 +464,21 @@ class ExampleQWidget(QWidget):
         label2 = QLabel(counts)
         grid_layout.addWidget(label2, i, 2)
 
+        button2 = QPushButton('zoom in', objectName=name)
+        button2.clicked.connect(self.zoom_in)
+
         if segment['done']:
-            button2 = QPushButton('restore', objectName=name)
-            button2.clicked.connect(self.restore)
-        else:
-            button2 = QPushButton('done', objectName=name)
-            button2.clicked.connect(self.done)
+            # disable button2 for treated areas
+            button2.setEnabled(False)
         grid_layout.addWidget(button2, i, 3)
+
+        if segment['done']:
+            button3 = QPushButton('restore', objectName=name)
+            button3.clicked.connect(self.restore)
+        else:
+            button3 = QPushButton('done', objectName=name)
+            button3.clicked.connect(self.done)
+        grid_layout.addWidget(button3, i, 4)
 
     def show_area(self):
         """ Show the data for a specific segment in a new label layer """
@@ -512,6 +523,65 @@ class ExampleQWidget(QWidget):
         # Change to the matching color
         layer.selected_label = label + 1
 
+    def zoom_in(self):
+        """
+        Show a segment and its immediate surroundings in a 3D view.
+        """
+
+        # (25.06.2025)
+        # Hide all existing layers in Napari
+        for layer in self.viewer.layers:
+            layer.visible = False
+
+        # Determine the segment to be displayed
+        name = self.sender().objectName()   # name of the object: Segment n
+        print('zoom in for', name)
+        hit = [d for d in self.areas if d.get('name') == name]  # d == dict.
+        segment = hit[0]
+        target_label = segment['label']     # target label
+        margin_factor = 0.5                 # 50 % margin
+
+        # Segment mask
+        mask = (self.labels == target_label)
+
+        # Calculate bounding box
+        coords = np.argwhere(mask)
+        minz, miny, minx = coords.min(axis=0)
+        maxz, maxy, maxx = coords.max(axis=0)
+
+        # Enlage box
+        sz, sy, sx = maxz - minz + 1, maxy - miny + 1, maxx - minx + 1
+        mz = int(sz * margin_factor / 2)
+        my = int(sy * margin_factor / 2)
+        mx = int(sx * margin_factor / 2)
+
+        # Limitation to the image
+        shape = self.image.shape
+        startz = max(minz - mz, 0)
+        starty = max(miny - my, 0)
+        startx = max(minx - mx, 0)
+        endz   = min(maxz + mz + 1, shape[0])
+        endy   = min(maxy + my + 1, shape[1])
+        endx   = min(maxx + mx + 1, shape[2])
+
+        # Cropping
+        cropped_image = self.image[startz:endz, starty:endy, startx:endx]
+        cropped_segmentation = self.segmentation[startz:endz, starty:endy,
+            startx:endx]
+        cropped_labels = self.labels[startz:endz, starty:endy, startx:endx]
+
+        # Keep only inside the box
+        masked_labels = np.where(cropped_labels == target_label, target_label, 0)
+        com = ndimage.center_of_mass(masked_labels)     # center of mass
+
+        # Display data in Napari
+        self.viewer.add_image(cropped_image, name='Cropped image')
+        self.viewer.add_labels(cropped_segmentation, name='Cropped segmentation')
+        layer = self.viewer.add_labels(masked_labels, name='Masked labels')
+        self.viewer.dims.current_step = com
+        self.viewer.camera.center = com
+        layer.selected_label = target_label
+
     def done(self):
         """
         Transfer data from the area to the segmentation and uncertainty layer and
@@ -519,7 +589,7 @@ class ExampleQWidget(QWidget):
         """
 
         # (18.07.2024)
-        name = self.sender().objectName()   # name of the object: SEgment n
+        name = self.sender().objectName()   # name of the object: Segment n
         self.compare_and_transfer(name)     # transfer of data
         layer = self.viewer.layers[name]
         self.viewer.layers.remove(layer)    # delete the layer 'Segment_n'
