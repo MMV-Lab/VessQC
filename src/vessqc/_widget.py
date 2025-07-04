@@ -20,8 +20,10 @@ import numpy as np
 from scipy import ndimage
 import napari
 import SimpleITK as sitk
+import time
 from tifffile import imread, imwrite
 from pathlib import Path
+from joblib import Parallel, delayed
 from qtpy.QtCore import QSize, Qt
 from qtpy.QtWidgets import (
     QCheckBox,
@@ -40,6 +42,32 @@ from qtpy.QtWidgets import (
 if TYPE_CHECKING:
     import napari
 
+def _label_value_sparse(uncertainty, value, tolerance, structure, value_idx,
+    num_unique_values):
+    # Worker side
+    # (03.07.2025)
+
+    mask = np.abs(uncertainty - value) < tolerance
+    if not np.any(mask):
+        return None
+
+    labeled, num = ndimage.label(mask, structure)   # Segmentation
+    if num == 0:
+        return None
+
+    # Calculate global unique labels directly
+    # local labels: 1, 2, 3, ...
+    # → global: (local - 1) * num_unique_values + (value_idx + 1)
+    labeled_global = (labeled - 1) * num_unique_values + (value_idx + 1)
+    labeled_global[labeled == 0] = 0
+
+    indices = np.where(mask)
+    return {
+        'indices':       indices,
+        'global_labels': labeled_global[indices],
+        'value':         value,
+        'num':           num
+    }
 
 class ExampleQWidget(QWidget):
     """
@@ -299,60 +327,71 @@ class ExampleQWidget(QWidget):
             QMessageBox.warning(self, 'I/O Error:', str(error))
             return
 
-        print('Sorry, but the segmentation will take some time.')
         if self.areas == []:
             self.build_areas(self.uncertainty)      # define areas
 
     def build_areas(self, uncertainty: np.ndarray):
         """ Define segments that correspond to values of equal uncertainty """
 
-        # (09.08.2024, revised on 20.05.2025)
+        # (09.08.2024, revised on 03.07.2025)
+        t1 = time.time()
+        print('Sorry, but the segmentation will take some time.')
+
         unique_values = np.unique(uncertainty)
-        unique_values = unique_values[unique_values > 0]    # Values > 0
+        unique_values = unique_values[unique_values > 0]
+        num_unique_values = len(unique_values)
+        tolerance = 1e-2
+        structure = np.ones((3, 3, 3), dtype=int)   # Connectivity
 
-        tolerance = 1e-2            # Tolerance, if necessary
-        uncert_values = [0.0]       # List of all uncertanty values
-        self.labels = np.zeros_like(uncertainty, dtype=int) # result array
-        current_label = 0           # offset for labels
-        structure = np.ones((3, 3, 3), dtype=int)           # Connectivity
+        results = Parallel(n_jobs=-1)(
+            delayed(_label_value_sparse)(
+                uncertainty, value, tolerance, structure, idx, num_unique_values
+            )
+            for idx, value in enumerate(unique_values)
+        )
 
-        # For each value: Create mask and mark the segments with ndimage.label
-        for value in unique_values:
-            mask = np.abs(uncertainty - value) < tolerance
-            labeled, num = ndimage.label(mask, structure)   # Segmentation
+        self.labels = np.zeros_like(uncertainty, dtype=int)
+        uncert_values = {0: 0.0}    # Dictionary of all uncertanty values
 
-            # Move label values so that they are unique
-            labeled[mask] += current_label
-            self.labels[mask] = labeled[mask]
-            current_label += num
+        for i, res in enumerate(results):
+            if res is None:
+                continue
+            indices = res['indices']
+            labels  = res['global_labels']
+            value   = res['value']
+            num     = res['num']
 
-            # Save the uncertainty value for each label
-            uncert_values.extend([value] * num)
+            self.labels[indices] = labels
+     
+            # Form a dictionary with the uncertainty values that correspond to
+            # the respective labels
+            keys = list(np.unique(labels))
+            values = [value] * num
+            uv2 = dict(zip(keys, values))
+            uncert_values = {**uncert_values, **uv2}
 
-        print('done')
         # Count how often each label appears
         counts = np.bincount(self.labels.ravel())
 
         # Determine all labels that appear less than 10 times
         min_size = 10
         small_labels = np.where(counts < min_size)[0]
-        small_labels = small_labels[small_labels != 0]      # small-labels != 0
+        small_labels = small_labels[small_labels != 0]
 
         # Replaces all labels that occur less than 10 times with the value
-        # new_label
-        new_label = np.max(self.labels) + 1
+        # new_max_label
+        new_max_label = np.max(self.labels) + 1
         mask = np.isin(self.labels, small_labels)
-        self.labels[mask] = new_label
+        self.labels[mask] = new_max_label
 
         # Create a structure for storing the data
         all_labels = np.unique(self.labels)
         all_labels = all_labels[all_labels != 0]
         counts = np.bincount(self.labels.ravel())
-        uncert_values.append(np.median(unique_values))
+        uncert_values[new_max_label] = np.pi
 
-        i = 1
         self.areas = []
-        for label in all_labels:
+        for i, label in enumerate(all_labels):
             segment = {
                 'name': 'Segment_%d' % (i),
                 'label': label,
@@ -363,7 +402,9 @@ class ExampleQWidget(QWidget):
                 'done': False,
             }
             self.areas.append(segment)
-            i += 1
+
+        t2 = time.time()
+        print('done at', t2 - t1, 's')
 
     def show_popup_window(self):
         """ Define a pop-up window for the uncertainty list """
@@ -530,8 +571,11 @@ class ExampleQWidget(QWidget):
 
         # (25.06.2025)
         # Hide all existing layers in Napari
-        for layer in self.viewer.layers:
-            layer.visible = False
+        # for layer in self.viewer.layers:
+        #     layer.visible = False
+
+        # Delete all layers in Napari
+        self.viewer.layers.clear()
 
         # Determine the segment to be displayed
         name = self.sender().objectName()   # name of the object: Segment n
