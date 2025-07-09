@@ -330,6 +330,29 @@ class ExampleQWidget(QWidget):
         if self.areas == []:
             self.build_areas(self.uncertainty)      # define areas
 
+    """
+    def remap_labels_and_dict(self, label_map, uncert_values):
+        # Remap self.labels and the uncertainty-value dictionary to new
+        # sequential labels
+        # (08.07.2025)
+
+        # Remap self.labels array in-place
+        # The use of the auxiliary array new_labels is necessary because the
+        # value ranges between new and old labels can overlap.
+        new_labels = np.zeros_like(self.labels)
+        for old, new in label_map.items():
+            new_labels[self.labels == old] = new
+        self.labels = new_labels
+
+        # Remap uncertainty value dictionary
+        remapped_dict = {
+            label_map[old]: value
+            for old, value in uncert_values.items()
+            if old in label_map
+        }
+        return remapped_dict
+    """
+
     def build_areas(self, uncertainty: np.ndarray):
         """ Define segments that correspond to values of equal uncertainty """
 
@@ -370,16 +393,29 @@ class ExampleQWidget(QWidget):
             uv2 = dict(zip(keys, values))
             uncert_values = {**uncert_values, **uv2}
 
-        # Count how often each label appears
-        counts = np.bincount(self.labels.ravel())
+        t2 = time.time()
+        print('Segmentation in', t2 - t1, 's')
+
+        """
+        # Remap of labels to 1...N
+        old_labels = np.unique(self.labels)
+        old_labels = old_labels[old_labels > 0]
+        label_map = {old: new for new, old in enumerate(old_labels, start=1)}
+
+        uncert_values = self.remap_labels_and_dict(label_map, uncert_values)
+
+        t3 = time.time()
+        print('Remapping in', t3 - t2, 's')
+        """
 
         # Determine all labels that appear less than 10 times
         min_size = 10
+        counts = np.bincount(self.labels.ravel())
         small_labels = np.where(counts < min_size)[0]
         small_labels = small_labels[small_labels != 0]
 
         # Replaces all labels that occur less than 10 times with the value
-        # new_max_label
+        # max(labels) + 1
         new_max_label = np.max(self.labels) + 1
         mask = np.isin(self.labels, small_labels)
         self.labels[mask] = new_max_label
@@ -391,9 +427,9 @@ class ExampleQWidget(QWidget):
         uncert_values[new_max_label] = np.pi
 
         self.areas = []
-        for i, label in enumerate(all_labels):
+        for label in all_labels:
             segment = {
-                'name': 'Segment_%d' % (i),
+                'name': '',
                 'label': label,
                 'uncertainty': uncert_values[label],
                 'counts': counts[label],
@@ -403,8 +439,15 @@ class ExampleQWidget(QWidget):
             }
             self.areas.append(segment)
 
-        t2 = time.time()
-        print('done at', t2 - t1, 's')
+        # Sort by 'uncertainty' ascending
+        self.areas.sort(key=lambda x: x['uncertainty'])
+
+        # Number the names
+        for i, segment in enumerate(self.areas, start=1):
+            segment['name'] = f"Segment {i}"
+
+        t4 = time.time()
+        print('post processing in', t4 - t2, 's')
 
     def show_popup_window(self):
         """ Define a pop-up window for the uncertainty list """
