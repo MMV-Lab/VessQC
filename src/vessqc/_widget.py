@@ -394,7 +394,7 @@ class ExampleQWidget(QWidget):
             uncert_values = {**uncert_values, **uv2}
 
         t2 = time.time()
-        print('Segmentation in', t2 - t1, 's')
+        print('Segmentation done in', t2 - t1, 's')
 
         """
         # Remap of labels to 1...N
@@ -433,9 +433,10 @@ class ExampleQWidget(QWidget):
                 'label': label,
                 'uncertainty': uncert_values[label],
                 'counts': counts[label],
-                'com': None,                # center of mass
-                'site': None,
-                'done': False,
+                'coords': None,         # coordinates
+                'com':    None,         # center of mass
+                'site':   None,
+                'done':   False,
             }
             self.areas.append(segment)
 
@@ -445,9 +446,6 @@ class ExampleQWidget(QWidget):
         # Number the names
         for i, segment in enumerate(self.areas, start=1):
             segment['name'] = f"Segment {i}"
-
-        t4 = time.time()
-        print('post processing in', t4 - t2, 's')
 
     def show_popup_window(self):
         """ Define a pop-up window for the uncertainty list """
@@ -474,8 +472,8 @@ class ExampleQWidget(QWidget):
         grid_layout.addWidget(QLabel('Segment'), 0, 0)
         grid_layout.addWidget(QLabel('Uncertainty'), 0, 1)
         grid_layout.addWidget(QLabel('Counts'), 0, 2)
-        grid_layout.addWidget(QLabel('Zoom in'), 0, 3)
-        grid_layout.addWidget(QLabel('done'), 0, 4)
+        # grid_layout.addWidget(QLabel('Zoom in'), 0, 3)
+        grid_layout.addWidget(QLabel('done'), 0, 3)
 
         # Define buttons and select values for some labels
         i = 1
@@ -499,8 +497,8 @@ class ExampleQWidget(QWidget):
         grid_layout.addWidget(QLabel('Segment'), i, 0)
         grid_layout.addWidget(QLabel('Uncertainty'), i, 1)
         grid_layout.addWidget(QLabel('Counts'), i, 2)
-        grid_layout.addWidget(QLabel('Zoom in'), i, 3)
-        grid_layout.addWidget(QLabel('restore'), i, 4)
+        # grid_layout.addWidget(QLabel('Zoom in'), i, 3)
+        grid_layout.addWidget(QLabel('restore'), i, 3)
         i += 1
 
         for segment in self.areas:
@@ -531,16 +529,15 @@ class ExampleQWidget(QWidget):
 
         # (13.08.2024)
         # Define some buttons and labels
-        name = segment['name']
-        button1 = QPushButton(name)
-        button1.clicked.connect(self.show_area)
+        button1 = QPushButton(segment['name'])
+        button1.clicked.connect(lambda: self.zoom_in(segment, 0.75))
 
         if segment['done']:
             # disable button1 for treated areas
             button1.setEnabled(False)
         grid_layout.addWidget(button1, i, 0)
 
-        uncertainty = '%.5f' % (segment['uncertainty'])
+        uncertainty = '%.4f' % (segment['uncertainty'])
         label1 = QLabel(uncertainty)
         grid_layout.addWidget(label1, i, 1)
 
@@ -548,33 +545,32 @@ class ExampleQWidget(QWidget):
         label2 = QLabel(counts)
         grid_layout.addWidget(label2, i, 2)
 
-        button2 = QPushButton('zoom in', objectName=name)
-        button2.clicked.connect(self.zoom_in)
+        """
+        button2 = QPushButton('zoom in')
+        button2.clicked.connect(lambda: self.zoom_in(segment, 0.75))
 
         if segment['done']:
             # disable button2 for treated areas
             button2.setEnabled(False)
         grid_layout.addWidget(button2, i, 3)
+        """
 
         if segment['done']:
-            button3 = QPushButton('restore', objectName=name)
-            button3.clicked.connect(self.restore)
+            button3 = QPushButton('restore')
+            button3.clicked.connect(lambda: self.restore(segment))
         else:
-            button3 = QPushButton('done', objectName=name)
-            button3.clicked.connect(self.done)
-        grid_layout.addWidget(button3, i, 4)
+            button3 = QPushButton('done')
+            button3.clicked.connect(lambda: self.done(segment))
+        grid_layout.addWidget(button3, i, 3)
 
-    def show_area(self):
+    def show_area(self, segment: dict):
         """ Show the data for a specific segment in a new label layer """
 
         # (29.05.2024)
-        name = self.sender().text()     # text of the button: Segment_n
-        hit = [d for d in self.areas if d.get('name') == name]  # d == dict.
-        segment = hit[0]
+        name  = segment['name']         # segment name: "Segment nn"
         label = segment['label']        # segment label
-        com = segment['com']            # center of mass
 
-        # Check whether the layer 'Segment_n' already exists
+        # Check whether the layer 'Segment_nn' already exists
         if any(layer.name == name and isinstance(layer, napari.layers.Labels)
             for layer in self.viewer.layers):
             layer = self.viewer.layers[name]
@@ -594,11 +590,11 @@ class ExampleQWidget(QWidget):
             layer = self.viewer.add_labels(data, name=name)
 
         # Find the center of the data points
-        if com == None:
+        if segment['com'] == None:
             com = ndimage.center_of_mass(data)
-            com = tuple(int(round(c)) for c in com)
+            com =  tuple(int(round(c)) for c in com)
             segment['com'] = com
-            print('center of mass:', com)
+            print('center of mass:', segment['com'])
 
         # Set the appropriate level and focus
         self.viewer.dims.current_step = com
@@ -607,29 +603,18 @@ class ExampleQWidget(QWidget):
         # Change to the matching color
         layer.selected_label = label + 1
 
-    def zoom_in(self):
+    def zoom_in(self, segment: dict, margin_factor: float):
         """
         Show a segment and its immediate surroundings in a 3D view.
         """
 
         # (25.06.2025)
-        # Hide all existing layers in Napari
-        # for layer in self.viewer.layers:
-        #     layer.visible = False
-
-        # Delete all layers in Napari
-        self.viewer.layers.clear()
+        self.viewer.layers.clear()          # Delete all layers in Napari
 
         # Determine the segment to be displayed
-        name = self.sender().objectName()   # name of the object: Segment n
-        print('zoom in for', name)
-        hit = [d for d in self.areas if d.get('name') == name]  # d == dict.
-        segment = hit[0]
-        target_label = segment['label']     # target label
-        margin_factor = 0.5                 # 50 % margin
-
-        # Segment mask
-        mask = (self.labels == target_label)
+        label = segment['label']            # target label
+        mask  = (self.labels == label)      # Segment mask
+        segment['site'] = np.where(mask)    # save the site for later use
 
         # Calculate bounding box
         coords = np.argwhere(mask)
@@ -651,6 +636,9 @@ class ExampleQWidget(QWidget):
         endy   = min(maxy + my + 1, shape[1])
         endx   = min(maxx + mx + 1, shape[2])
 
+        # Save the coordinates of the image section
+        segment['coords'] = [(startz, starty, startx), (endz, endy, endx)]
+
         # Cropping
         cropped_image = self.image[startz:endz, starty:endy, startx:endx]
         cropped_segmentation = self.segmentation[startz:endz, starty:endy,
@@ -658,84 +646,100 @@ class ExampleQWidget(QWidget):
         cropped_labels = self.labels[startz:endz, starty:endy, startx:endx]
 
         # Keep only inside the box
-        masked_labels = np.where(cropped_labels == target_label, target_label, 0)
+        masked_labels = np.where(cropped_labels == label, label, 0)
         com = ndimage.center_of_mass(masked_labels)     # center of mass
+        segment['com'] = com
 
         # Display data in Napari
         self.viewer.add_image(cropped_image, name='Cropped image')
         self.viewer.add_labels(cropped_segmentation, name='Cropped segmentation')
-        layer = self.viewer.add_labels(masked_labels, name='Masked labels')
+        layer = self.viewer.add_labels(masked_labels, name=segment['name'])
+
+        # Set the appropriate level and focus
         self.viewer.dims.current_step = com
         self.viewer.camera.center = com
-        layer.selected_label = target_label
 
-    def done(self):
+        # Change to the matching color
+        layer.selected_label = label
+
+    def done(self, segment: dict):
         """
-        Transfer data from the area to the segmentation and uncertainty layer and
-        close the layer for the area
+        Transfer data from the area to the segmentation and uncertainty layer
+        and close the layer for the area
         """
 
         # (18.07.2024)
-        name = self.sender().objectName()   # name of the object: Segment n
-        self.compare_and_transfer(name)     # transfer of data
-        layer = self.viewer.layers[name]
-        self.viewer.layers.remove(layer)    # delete the layer 'Segment_n'
+        self.compare_and_transfer(segment)  # transfer of data
+        segment['done'] = True              # mark this area as treated
         self.show_popup_window()            # open a new pop-up window
 
-    def restore(self):
+    def restore(self, segment: dict):
         """ Restore the data of a specific area in the pop-up window """
 
         # (19.07.2024)
-        name = self.sender().objectName()
-        hit = [d for d in self.areas if d.get('name') == name]
-        segment = hit[0]                # selected area
         segment['done'] = False
         self.show_popup_window()
 
-    def compare_and_transfer(self, name: str):
+    def compare_and_transfer(self, segment: dict):
         """
         Compare old and new data and transfer the changes to the segmentation
         and uncertainty data
 
         Parameters
         ----------
-        name : str
-            Name of the segment (e.g. 'Segment_5')
+        segment : dict
+            Data of the segment
         """
 
         # (09.08.2024)
-        hit = [d for d in self.areas if d.get('name') == name]
-        segment = hit[0]
-        label = segment['label']                # segment label
+        name        = segment['name']
+        label       = segment['label']
         uncertainty = segment['uncertainty']
+        coords      = segment['coords']
+        site        = segment['site']
 
         # If a label layer with this name exists:
         if any(layer.name == name and isinstance(layer, napari.layers.Labels)
             for layer in self.viewer.layers):
 
-            # search for the changed data points
+            # Data of the segment
             layer = self.viewer.layers[name]
-            new_data = layer.data
+            segment_data = layer.data
+
+            # Original coordinates of the segment
+            startz, starty, startx = coords[0]
+            endz,   endy,   endx   = coords[1]
+
+            # Create an empty image and insert the segment data
+            new_data = np.zeros_like(self.labels, dtype=int)
+            new_data[startz:endz, starty:endy, startx:endx] = segment_data
 
             # compare new and old data
-            site = segment['site']              # recall the old values
-            old_data = np.zeros_like(new_data, dtype=int)
-            old_data[site] = label + 1
+            old_data = np.zeros_like(self.labels, dtype=int)
+            old_data[site] = label
             delta = new_data - old_data
 
-            index_add = np.where(delta > 0)       # new data points
-            index_del = np.where(delta < 0)       # deleted data points
+            add_data = np.where(delta > 0)       # new data points
+            del_data = np.where(delta < 0)       # deleted data points
+
+            # transfer the changes to the labels layer
+            self.labels[add_data] = label
+            self.labels[del_data] = 0
 
             # transfer the changes to the segmentation layer
-            self.segmentation[index_add] = 1
-            self.segmentation[index_del] = 0
-            self.viewer.layers['Segmentation'].data = self.segmentation
+            self.segmentation[add_data] = 1
+            self.segmentation[del_data] = 0
 
             # transfer the changes to the uncertainty layer
-            self.uncertainty[index_add] = uncertainty
-            self.uncertainty[index_del] = 0.0
+            self.uncertainty[add_data] = uncertainty
+            self.uncertainty[del_data] = 0.0
 
-            segment['done'] = True              # mark this area as treated
+            # Delete the cropped images
+            self.viewer.layers.clear()
+
+            # Show image and segmentation
+            self.viewer.add_image(self.image, name=self.stem1)
+            self.viewer.add_labels(self.segmentation, name='Segmentation')
 
     def btn_save(self):
         """ Save the segmentation and uncertainty data to files on drive """
@@ -891,6 +895,8 @@ class ExampleQWidget(QWidget):
 
             print('type:', type(data))
             print('dtype:', data.dtype)
+            print('size:',  data.size)
+            print('ndim:',  data.ndim)
             print('shape:', data.shape)
             print('values:', values)
             print('counts:', counts)
