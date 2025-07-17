@@ -357,7 +357,7 @@ class ExampleQWidget(QWidget):
         """ Define segments that correspond to values of equal uncertainty """
 
         # (09.08.2024, revised on 03.07.2025)
-        t1 = time.time()
+        t0 = time.time()                # UNIX timestamp
         print('Sorry, but the segmentation will take some time.')
 
         unique_values = np.unique(uncertainty)
@@ -388,13 +388,12 @@ class ExampleQWidget(QWidget):
      
             # Form a dictionary with the uncertainty values that correspond to
             # the respective labels
-            keys = list(np.unique(labels))
+            keys   = list(np.unique(labels))
             values = [value] * num
-            uv2 = dict(zip(keys, values))
-            uncert_values = {**uncert_values, **uv2}
+            uval   = dict(zip(keys, values))
+            uncert_values = {**uncert_values, **uval}
 
-        t2 = time.time()
-        print('Segmentation done in', t2 - t1, 's')
+        print('Done in', time.time() - t0, 's')
 
         """
         # Remap of labels to 1...N
@@ -416,28 +415,28 @@ class ExampleQWidget(QWidget):
 
         # Replaces all labels that occur less than 10 times with the value
         # max(labels) + 1
-        new_max_label = np.max(self.labels) + 1
+        max_label = np.max(self.labels) + 1
         mask = np.isin(self.labels, small_labels)
-        self.labels[mask] = new_max_label
+        self.labels[mask] = max_label
 
         # Create a structure for storing the data
         all_labels = np.unique(self.labels)
         all_labels = all_labels[all_labels != 0]
         counts = np.bincount(self.labels.ravel())
-        uncert_values[new_max_label] = np.pi
+        uncert_values[max_label] = 0.9999
 
-        self.areas = []
+        self.areas = list()
         for label in all_labels:
-            segment = {
-                'name': '',
-                'label': label,
-                'uncertainty': uncert_values[label],
-                'counts': counts[label],
-                'coords': None,         # coordinates
-                'com':    None,         # center of mass
-                'site':   None,
-                'done':   False,
-            }
+            segment = dict(
+                name        = '',
+                label       = label,
+                uncertainty = uncert_values[label],
+                counts      = counts[label],
+                coords      = None,      # coordinates
+                com         = None,      # center of mass
+                site        = None,
+                done        = False,
+            )
             self.areas.append(segment)
 
         # Sort by 'uncertainty' ascending
