@@ -14,17 +14,17 @@ ExampleQWidget
 # Copyright © Peter Lampen, ISAS Dortmund, 2024
 # (03.05.2024)
 
-from typing import TYPE_CHECKING
-
 import numpy as np
-from scipy import ndimage
 import napari
 import SimpleITK as sitk
 import time
-from tifffile import imread, imwrite
-from pathlib import Path
 from joblib import Parallel, delayed
-from qtpy.QtCore import QSize, Qt
+from pathlib import Path
+from qtpy.QtCore import (
+    QSize,
+    Qt,
+    QTimer,
+)
 from qtpy.QtWidgets import (
     QCheckBox,
     QFileDialog,
@@ -38,6 +38,10 @@ from qtpy.QtWidgets import (
     QWidget,
     QSizePolicy,
 )
+from scipy import ndimage
+from threading import Thread
+from tifffile import imread, imwrite
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import napari
@@ -62,12 +66,13 @@ def _label_value_sparse(uncertainty, value, tolerance, structure, value_idx,
     labeled_global[labeled == 0] = 0
 
     indices = np.where(mask)
-    return {
-        'indices':       indices,
-        'global_labels': labeled_global[indices],
-        'value':         value,
-        'num':           num
-    }
+    res = dict(
+        indices =       indices,
+        global_labels = labeled_global[indices],
+        value =         value,
+        num =           num
+    )
+    return res
 
 class ExampleQWidget(QWidget):
     """
@@ -259,8 +264,8 @@ class ExampleQWidget(QWidget):
 
         # (23.05.2024, revised on 05.02.2025)
         # Search for the segPred file
-        stem2 = self.stem1[:-3] + '_segPred'    # Replace '_IM' by '_segPred'
-        path = self.parent / stem2
+        self.stem2 = self.stem1[:-3] + '_segPred'   # Replace _IM by _segPred
+        path = self.parent / self.stem2
 
         if path.with_suffix('.tif').is_file():
             path = path.with_suffix('.tif')
@@ -273,7 +278,7 @@ class ExampleQWidget(QWidget):
             suffix = '.nii'
         elif path.with_suffix('.nii.gz').is_file():
             path = path.with_suffix('.nii.gz')
-            suffix = '.gz'
+            suffix = '.nii.gz'
         else:
             QMessageBox.information(self, 'File not found',
                 'No segPred file %s found!' % (path))
@@ -284,7 +289,7 @@ class ExampleQWidget(QWidget):
         try:
             if suffix == '.tif' or suffix == '.tiff':
                 self.seg_pred = imread(path)
-            elif suffix == '.nii' or suffix == '.gz':
+            elif suffix == '.nii' or suffix == '.nii.gz':
                 sitk_image = sitk.ReadImage(path)
                 self.seg_pred = sitk.GetArrayFromImage(sitk_image)
         except BaseException as error:
@@ -292,11 +297,11 @@ class ExampleQWidget(QWidget):
             return
 
         # Save the segPred data in a label layer
-        self.viewer.add_labels(self.seg_pred, name='segPred')
+        self.viewer.add_labels(self.seg_pred, name=self.stem2)
 
         # Search for the uncertainty file
-        stem2 = self.stem1[:-3] + '_uncertainty'
-        path = self.parent / stem2
+        stem3 = self.stem1[:-3] + '_uncertainty'
+        path = self.parent / stem3
 
         if path.with_suffix('.tif').is_file():
             path = path.with_suffix('.tif')
@@ -358,7 +363,7 @@ class ExampleQWidget(QWidget):
 
         # (09.08.2024, revised on 03.07.2025)
         t0 = time.time()                # UNIX timestamp
-        print('Sorry, but the segmentation will take some time.')
+        print('The segmentation will take some time.')
 
         unique_values = np.unique(uncertainty)
         unique_values = unique_values[unique_values > 0]
@@ -565,8 +570,9 @@ class ExampleQWidget(QWidget):
             button3.clicked.connect(lambda: self.done(segment))
         grid_layout.addWidget(button3, i, 3)
 
+    """
     def show_area(self, segment: dict):
-        """ Show the data for a specific segment in a new label layer """
+        # Show the data for a specific segment in a new label layer
 
         # (29.05.2024)
         name  = segment['name']         # segment name: "Segment nn"
@@ -604,6 +610,7 @@ class ExampleQWidget(QWidget):
 
         # Change to the matching color
         layer.selected_label = label + 1
+    """
 
     def zoom_in(self, segment: dict, margin_factor: float):
         """
@@ -651,9 +658,12 @@ class ExampleQWidget(QWidget):
         masked_labels = np.where(cropped_labels == label, label, 0)
 
         # Display data in Napari
-        self.viewer.add_image(cropped_image, name='Cropped image')
-        self.viewer.add_labels(cropped_seg_pred, name='Cropped segPred')
-        layer = self.viewer.add_labels(masked_labels, name=segment['name'])
+        name1 = 'Cropped ' + self.stem1
+        name2 = 'Cropped ' + self.stem2
+        name3 = segment['name']
+        self.viewer.add_image(cropped_image, name=name1)
+        self.viewer.add_labels(cropped_seg_pred, name=name2)
+        layer = self.viewer.add_labels(masked_labels, name=name3)
 
         # Set the appropriate level and focus
         com = ndimage.center_of_mass(masked_labels)     # center of mass
@@ -666,14 +676,22 @@ class ExampleQWidget(QWidget):
 
     def done(self, segment: dict):
         """
-        Transfer data from the area to the segPred and uncertainty layer
-        and close the layer for the area
+        Transfer data from the area to the labels, segPred and uncertainty
+        layer and close the layer for the area
         """
 
         # (18.07.2024)
         self.compare_and_transfer(segment)  # transfer of data
         segment['done'] = True              # mark this area as treated
-        self.show_popup_window()            # open a new pop-up window
+
+        # Show image, segPred und segments
+        self.viewer.layers.clear()
+        self.viewer.add_image(self.image, name=self.stem1)
+        self.viewer.add_labels(self.seg_pred, name=self.stem2)
+        self.viewer.add_labels(self.labels, name='Segmentation')
+
+        # open a new pop-up window
+        self.show_popup_window()
 
     def restore(self, segment: dict):
         """ Restore the data of a specific area in the pop-up window """
@@ -735,13 +753,6 @@ class ExampleQWidget(QWidget):
             # transfer the changes to the uncertainty layer
             self.uncertainty[add_data] = uncertainty
             self.uncertainty[del_data] = 0.0
-
-            # Delete the cropped images
-            self.viewer.layers.clear()
-
-            # Show image and segPred
-            self.viewer.add_image(self.image, name=self.stem1)
-            self.viewer.add_labels(self.seg_pred, name='segPred')
 
     def btn_save(self):
         """ Save the segPred and uncertainty data to files on drive """
