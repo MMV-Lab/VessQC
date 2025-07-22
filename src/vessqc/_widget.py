@@ -14,17 +14,11 @@ ExampleQWidget
 # Copyright © Peter Lampen, ISAS Dortmund, 2024
 # (03.05.2024)
 
+from joblib import Parallel, delayed
 import numpy as np
 import napari
-import SimpleITK as sitk
-import time
-from joblib import Parallel, delayed
 from pathlib import Path
-from qtpy.QtCore import (
-    QSize,
-    Qt,
-    QTimer,
-)
+from qtpy.QtCore import QSize, Qt
 from qtpy.QtWidgets import (
     QCheckBox,
     QFileDialog,
@@ -39,12 +33,14 @@ from qtpy.QtWidgets import (
     QSizePolicy,
 )
 from scipy import ndimage
-from threading import Thread
+import SimpleITK as sitk
 from tifffile import imread, imwrite
+import time
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import napari
+
 
 def _label_value_sparse(uncertainty, value, tolerance, structure, value_idx,
     num_unique_values):
@@ -61,7 +57,7 @@ def _label_value_sparse(uncertainty, value, tolerance, structure, value_idx,
 
     # Calculate global unique labels directly
     # local labels: 1, 2, 3, ...
-    # → global: (local - 1) * num_unique_values + (value_idx + 1)
+    # global labels: (local - 1) * num_unique_values + (value_idx + 1)
     labeled_global = (labeled - 1) * num_unique_values + (value_idx + 1)
     labeled_global[labeled == 0] = 0
 
@@ -73,6 +69,7 @@ def _label_value_sparse(uncertainty, value, tolerance, structure, value_idx,
         num =           num
     )
     return res
+
 
 class ExampleQWidget(QWidget):
     """
@@ -96,7 +93,7 @@ class ExampleQWidget(QWidget):
         Is the file extension '.tif' or '.tiff'?
     image : numpy.ndarray
         3D array with image data
-    seg_pred : numpy.ndarray
+    segPred : numpy.ndarray
         3D array with the vessel data
     uncertainty : numpy.ndarray
         3D array with uncertainties
@@ -109,10 +106,10 @@ class ExampleQWidget(QWidget):
         Class constructor
     load_image()
         Read the image file and save it in an image layer
-    read_seg_pred()
+    read_segPred()
         Read the segPred and uncertanty data and save it in a label and an
         image layer
-    build_areas(uncertainty: np.ndarray)
+    find_segments(uncertainty: np.ndarray)
         Define areas that correspond to values of equal uncertainty
     show_popup_window()
         Define a pop-up window for the uncertainty list
@@ -128,11 +125,11 @@ class ExampleQWidget(QWidget):
     compare_and_transfer(name: str)
         Compare old and new data of an area and transfer the changes to the
         segPred and uncertainty data
-    btn_save()
+    save_intermediate()
         Save the segPred and uncertainty data to files on drive
     reload()
         Read the segPred and uncertainty data from files on drive
-    final_segmentation()
+    save_results()
         Close all open area layers, close the pop-up window, save the
         segPred and if applicable also the uncertainty data to files on
         drive
@@ -155,7 +152,6 @@ class ExampleQWidget(QWidget):
         # (03.05.2024)
         super().__init__()
         self.viewer = viewer
-        self.save_uncertainty = False
 
         # Define the layout of the main widget
         self.setLayout(QVBoxLayout())
@@ -167,13 +163,13 @@ class ExampleQWidget(QWidget):
         label1.setFont(font)
         self.layout().addWidget(label1)
 
-        btnLoad = QPushButton('Load image')
-        btnLoad.clicked.connect(self.load_image)
-        self.layout().addWidget(btnLoad)
+        btnLoadImage = QPushButton('Load image')
+        btnLoadImage.clicked.connect(self.load_image)
+        self.layout().addWidget(btnLoadImage)
 
-        btnSegmentation = QPushButton('Read segmentation')
-        btnSegmentation.clicked.connect(self.read_seg_pred)
-        self.layout().addWidget(btnSegmentation)
+        btnSegPred = QPushButton('Read segPred file')
+        btnSegPred.clicked.connect(self.read_segPred)
+        self.layout().addWidget(btnSegPred)
 
         # Test output
         btnInfo = QPushButton('Info')
@@ -188,13 +184,13 @@ class ExampleQWidget(QWidget):
         label3.setFont(font)
         self.layout().addWidget(label3)
 
-        btnUncertainty = QPushButton('Load segment list')
-        btnUncertainty.clicked.connect(self.show_popup_window)
-        self.layout().addWidget(btnUncertainty)
+        btnPopupWindow = QPushButton('Show segment list')
+        btnPopupWindow.clicked.connect(self.show_popup_window)
+        self.layout().addWidget(btnPopupWindow)
 
-        btnSave = QPushButton('Save intermediate curation')
-        btnSave.clicked.connect(self.btn_save)
-        self.layout().addWidget(btnSave)
+        btnSaveIntermediate = QPushButton('Save intermediate curation')
+        btnSaveIntermediate.clicked.connect(self.save_intermediate)
+        self.layout().addWidget(btnSaveIntermediate)
 
         btnReload = QPushButton('Load saved curation')
         btnReload.clicked.connect(self.reload)
@@ -204,10 +200,11 @@ class ExampleQWidget(QWidget):
         label4.setAlignment(Qt.AlignHCenter)
         self.layout().addWidget(label4)
 
-        btnFinalSegmentation = QPushButton('Save results')
-        btnFinalSegmentation.clicked.connect(self.final_segmentation)
-        self.layout().addWidget(btnFinalSegmentation)
+        btnSaveResults = QPushButton('Save results')
+        btnSaveResults.clicked.connect(self.save_results)
+        self.layout().addWidget(btnSaveResults)
 
+        self.save_uncertainty = False
         cbxSaveUncertainty = QCheckBox('Save uncertainty')
         cbxSaveUncertainty.stateChanged.connect(self.checkbox_save_uncertainty)
         self.layout().addWidget(cbxSaveUncertainty)
@@ -227,16 +224,17 @@ class ExampleQWidget(QWidget):
             filter1)
 
         if filename == '':                      # Cancel has been pressed
-            QMessageBox.information(self, 'Cancel', 'Cancel has been pressed.')
+            QMessageBox.information(self, 'Cancel button',
+                'The cancel button has been pressed.')
             return
-        else:
-            path = Path(filename)
-            self.parent = path.parent           # The data directory
-            self.stem1  = path.stem             # Name of the input file
-            suffix      = path.suffix.lower()   # File extension
-            # Truncate the extension .nii
-            if suffix == '.gz' and self.stem1[-4:] == '.nii':
-                self.stem1 = self.stem1[:-4]
+
+        path = Path(filename)
+        self.parent = path.parent               # The data directory
+        self.stem1  = path.stem                 # Name of the input file
+        suffix      = path.suffix.lower()       # File extension
+        # Truncate the extension .nii
+        if suffix == '.gz' and self.stem1[-4:] == '.nii':
+            self.stem1 = self.stem1[:-4]
 
         # Load the image file
         print('Load', path)
@@ -256,7 +254,7 @@ class ExampleQWidget(QWidget):
 
         self.viewer.add_image(self.image, name=self.stem1)   # Show the image
 
-    def read_seg_pred(self):
+    def read_segPred(self):
         """
         Read the segPred and uncertanty data and save it in a label and an
         image layer
@@ -278,7 +276,7 @@ class ExampleQWidget(QWidget):
             suffix = '.nii'
         elif path.with_suffix('.nii.gz').is_file():
             path = path.with_suffix('.nii.gz')
-            suffix = '.nii.gz'
+            suffix = '.gz'
         else:
             QMessageBox.information(self, 'File not found',
                 'No segPred file %s found!' % (path))
@@ -288,16 +286,16 @@ class ExampleQWidget(QWidget):
         print('Load', path)
         try:
             if suffix == '.tif' or suffix == '.tiff':
-                self.seg_pred = imread(path)
-            elif suffix == '.nii' or suffix == '.nii.gz':
+                self.segPred = imread(path)
+            elif suffix == '.nii' or suffix == '.gz':
                 sitk_image = sitk.ReadImage(path)
-                self.seg_pred = sitk.GetArrayFromImage(sitk_image)
+                self.segPred = sitk.GetArrayFromImage(sitk_image)
         except BaseException as error:
             QMessageBox.warning(self, 'I/O Error:', str(error))
             return
 
         # Save the segPred data in a label layer
-        self.viewer.add_labels(self.seg_pred, name=self.stem2)
+        self.viewer.add_labels(self.segPred, name=self.stem2)
 
         # Search for the uncertainty file
         stem3 = self.stem1[:-3] + '_uncertainty'
@@ -333,7 +331,7 @@ class ExampleQWidget(QWidget):
             return
 
         if self.areas == []:
-            self.build_areas(self.uncertainty)      # define areas
+            self.find_segments(self.uncertainty)
 
     """
     def remap_labels_and_dict(self, label_map, uncert_values):
@@ -358,7 +356,7 @@ class ExampleQWidget(QWidget):
         return remapped_dict
     """
 
-    def build_areas(self, uncertainty: np.ndarray):
+    def find_segments(self, uncertainty: np.ndarray):
         """ Define segments that correspond to values of equal uncertainty """
 
         # (09.08.2024, revised on 03.07.2025)
@@ -470,7 +468,7 @@ class ExampleQWidget(QWidget):
         vbox_layout.addWidget(scroll_area)
 
         # Define a group box inside the scroll area
-        group_box = QGroupBox('Uncertainty list')
+        group_box = QGroupBox('Segment list')
         grid_layout = QGridLayout()
         group_box.setLayout(grid_layout)
         scroll_area.setWidget(group_box)
@@ -650,7 +648,7 @@ class ExampleQWidget(QWidget):
 
         # Cropping
         cropped_image = self.image[startz:endz, starty:endy, startx:endx]
-        cropped_seg_pred = self.seg_pred[startz:endz, starty:endy,
+        cropped_segPred = self.segPred[startz:endz, starty:endy,
             startx:endx]
         cropped_labels = self.labels[startz:endz, starty:endy, startx:endx]
 
@@ -662,7 +660,7 @@ class ExampleQWidget(QWidget):
         name2 = 'Cropped ' + self.stem2
         name3 = segment['name']
         self.viewer.add_image(cropped_image, name=name1)
-        self.viewer.add_labels(cropped_seg_pred, name=name2)
+        self.viewer.add_labels(cropped_segPred, name=name2)
         layer = self.viewer.add_labels(masked_labels, name=name3)
 
         # Set the appropriate level and focus
@@ -687,7 +685,7 @@ class ExampleQWidget(QWidget):
         # Show image, segPred und segments
         self.viewer.layers.clear()
         self.viewer.add_image(self.image, name=self.stem1)
-        self.viewer.add_labels(self.seg_pred, name=self.stem2)
+        self.viewer.add_labels(self.segPred, name=self.stem2)
         self.viewer.add_labels(self.labels, name='Segmentation')
 
         # open a new pop-up window
@@ -747,14 +745,14 @@ class ExampleQWidget(QWidget):
             self.labels[del_data] = 0
 
             # transfer the changes to the segPred layer
-            self.seg_pred[add_data] = 1
-            self.seg_pred[del_data] = 0
+            self.segPred[add_data] = 1
+            self.segPred[del_data] = 0
 
             # transfer the changes to the uncertainty layer
             self.uncertainty[add_data] = uncertainty
             self.uncertainty[del_data] = 0.0
 
-    def btn_save(self):
+    def save_intermediate(self):
         """ Save the segPred and uncertainty data to files on drive """
 
         # (26.07.2024)
@@ -763,7 +761,7 @@ class ExampleQWidget(QWidget):
         print('Save', filename)
         try:
             file = open(filename, 'wb')
-            np.save(file, self.seg_pred)
+            np.save(file, self.segPred)
         except BaseException as error:
             QMessageBox.warning(self, 'I/O Error:', str(error))
         finally:
@@ -791,7 +789,7 @@ class ExampleQWidget(QWidget):
         print('Read', filename)
         try:
             file = open(filename, 'rb')
-            self.seg_pred = np.load(file)
+            self.segPred = np.load(file)
         except BaseException as error:
             QMessageBox.warning(self, 'I/O Error:', str(error))
             return
@@ -804,9 +802,9 @@ class ExampleQWidget(QWidget):
             isinstance(layer, napari.layers.Labels)
             for layer in self.viewer.layers):
             layer = self.viewer.layers['segPred']
-            layer.data = self.seg_pred
+            layer.data = self.segPred
         else:
-            self.viewer.add_labels(self.seg_pred, name='segPred')
+            self.viewer.add_labels(self.segPred, name='segPred')
 
         # 2st: read the uncertainty data
         filename = self.parent / '_Uncertainty.npy'
@@ -822,9 +820,9 @@ class ExampleQWidget(QWidget):
                 file.close()
 
         if self.areas == []:
-            self.build_areas(self.uncertainty)      # define areas
+            self.find_segments(self.uncertainty)      # define areas
 
-    def final_segmentation(self):
+    def save_results(self):
         """
         Close all open area layers, close the pop-up window, save the
         segPred and if applicable also the uncertainty data to files on
@@ -858,7 +856,7 @@ class ExampleQWidget(QWidget):
         # Save the segPred data
         print('Save', filename)
         try:
-            imwrite(filename, self.seg_pred)
+            imwrite(filename, self.segPred)
         except BaseException as error:
             QMessageBox.warning(self, 'I/O Error:', str(error))
             return
