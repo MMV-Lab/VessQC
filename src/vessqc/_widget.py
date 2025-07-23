@@ -20,6 +20,7 @@ import napari
 from pathlib import Path
 from qtpy.QtCore import QSize, Qt
 from qtpy.QtWidgets import (
+    QApplication,
     QCheckBox,
     QFileDialog,
     QGridLayout,
@@ -42,12 +43,12 @@ if TYPE_CHECKING:
     import napari
 
 
-def _label_value_sparse(uncertainty, value, tolerance, structure, value_idx,
-    num_unique_values):
+def _label_value_sparse(uncertainty, uncert, tolerance, structure, value_idx,
+    num_unique_uncert):
     # Worker side
     # (03.07.2025)
 
-    mask = np.abs(uncertainty - value) < tolerance
+    mask = np.abs(uncertainty - uncert) < tolerance
     if not np.any(mask):
         return None
 
@@ -57,18 +58,18 @@ def _label_value_sparse(uncertainty, value, tolerance, structure, value_idx,
 
     # Calculate global unique labels directly
     # local labels: 1, 2, 3, ...
-    # global labels: (local - 1) * num_unique_values + (value_idx + 1)
-    labeled_global = (labeled - 1) * num_unique_values + (value_idx + 1)
+    # global labels: (local - 1) * num_unique_uncert + (value_idx + 1)
+    labeled_global = (labeled - 1) * num_unique_uncert + (value_idx + 1)
     labeled_global[labeled == 0] = 0
 
     indices = np.where(mask)
-    res = dict(
-        indices =       indices,
+    result = dict(
+        indices       = indices,
         global_labels = labeled_global[indices],
-        value =         value,
-        num =           num
+        uncert        = uncert,
+        num           = num
     )
-    return res
+    return result
 
 
 class ExampleQWidget(QWidget):
@@ -215,7 +216,7 @@ class ExampleQWidget(QWidget):
         """
 
         # (23.05.2024);
-        self.areas = []
+        self.segments = []
 
         # Find and load the image file
         filter1 = "TIFF files (*.tif *.tiff);;NIfTI files (*.nii *.nii.gz);;\
@@ -330,7 +331,9 @@ class ExampleQWidget(QWidget):
             QMessageBox.warning(self, 'I/O Error:', str(error))
             return
 
-        if self.areas == []:
+        QApplication.processEvents()    # Show the last created label layer
+
+        if self.segments == []:
             self.find_segments(self.uncertainty)
 
     """
@@ -363,38 +366,39 @@ class ExampleQWidget(QWidget):
         t0 = time.time()                # UNIX timestamp
         print('The segmentation will take some time.')
 
-        unique_values = np.unique(uncertainty)
-        unique_values = unique_values[unique_values > 0]
-        num_unique_values = len(unique_values)
+        unique_uncertainties = np.unique(uncertainty)
+        unique_uncertainties = unique_uncertainties[unique_uncertainties > 0]
+        num_unique_uncert = len(unique_uncertainties)
         tolerance = 1e-2
         structure = np.ones((3, 3, 3), dtype=int)   # Connectivity
 
         results = Parallel(n_jobs=-1)(
             delayed(_label_value_sparse)(
-                uncertainty, value, tolerance, structure, idx, num_unique_values
+                uncertainty, uncert, tolerance, structure, idx,
+                num_unique_uncert
             )
-            for idx, value in enumerate(unique_values)
+            for idx, uncert in enumerate(unique_uncertainties)
         )
 
         self.labels = np.zeros_like(uncertainty, dtype=int)
         uncert_values = {0: 0.0}    # Dictionary of all uncertanty values
 
-        for i, res in enumerate(results):
-            if res is None:
+        for result in results:
+            if result is None:
                 continue
-            indices = res['indices']
-            labels  = res['global_labels']
-            value   = res['value']
-            num     = res['num']
+            indices = result['indices']
+            labels  = result['global_labels']
+            uncert  = result['uncert']
+            num     = result['num']
 
             self.labels[indices] = labels
      
             # Form a dictionary with the uncertainty values that correspond to
             # the respective labels
-            keys   = list(np.unique(labels))
-            values = [value] * num
-            uval   = dict(zip(keys, values))
-            uncert_values = {**uncert_values, **uval}
+            keys     = list(np.unique(labels))
+            values   = [uncert] * num
+            u_values = dict(zip(keys, values))
+            uncert_values = {**uncert_values, **u_values}
 
         print('Done in', time.time() - t0, 's')
 
@@ -423,30 +427,29 @@ class ExampleQWidget(QWidget):
         self.labels[mask] = max_label
 
         # Create a structure for storing the data
-        all_labels = np.unique(self.labels)
-        all_labels = all_labels[all_labels != 0]
+        unique_labels = np.unique(self.labels)
+        unique_labels = unique_labels[unique_labels != 0]
         counts = np.bincount(self.labels.ravel())
         uncert_values[max_label] = 0.9999
 
-        self.areas = list()
-        for label in all_labels:
+        self.segments = list()
+        for label in unique_labels:
             segment = dict(
                 name        = '',
                 label       = label,
                 uncertainty = uncert_values[label],
                 counts      = counts[label],
-                coords      = None,      # coordinates
-                com         = None,      # center of mass
-                site        = None,
+                coords      = None,     # coordinates of cropped image
+                indices     = None,     # indices of the segments voxels
                 done        = False,
             )
-            self.areas.append(segment)
+            self.segments.append(segment)
 
         # Sort by 'uncertainty' ascending
-        self.areas.sort(key=lambda x: x['uncertainty'])
+        self.segments.sort(key=lambda x: x['uncertainty'])
 
-        # Number the names
-        for i, segment in enumerate(self.areas, start=1):
+        # Determine the names of the segments
+        for i, segment in enumerate(self.segments, start=1):
             segment['name'] = f"Segment {i}"
 
         # Display the segments in an label layer
@@ -457,7 +460,7 @@ class ExampleQWidget(QWidget):
 
         # (24.05.2024)
         self.popup_window = QWidget()
-        self.popup_window.setWindowTitle('napari')
+        self.popup_window.setWindowTitle('Napari (Segment list)')
         self.popup_window.setMinimumSize(QSize(350, 300))
         vbox_layout = QVBoxLayout()
         self.popup_window.setLayout(vbox_layout)
@@ -468,67 +471,62 @@ class ExampleQWidget(QWidget):
         vbox_layout.addWidget(scroll_area)
 
         # Define a group box inside the scroll area
-        group_box = QGroupBox('Segment list')
+        group_box = QGroupBox('List of segments:')
+        scroll_area.setWidget(group_box)
         grid_layout = QGridLayout()
         group_box.setLayout(grid_layout)
-        scroll_area.setWidget(group_box)
 
         # add widgets to the group box
         grid_layout.addWidget(QLabel('Segment'), 0, 0)
         grid_layout.addWidget(QLabel('Uncertainty'), 0, 1)
         grid_layout.addWidget(QLabel('Counts'), 0, 2)
-        # grid_layout.addWidget(QLabel('Zoom in'), 0, 3)
         grid_layout.addWidget(QLabel('done'), 0, 3)
 
         # Define buttons and select values for some labels
-        i = 1
-        for segment in self.areas:
+        for idx, segment in enumerate(self.segments, start=1):
             # Show only the untreated areas
             if segment['done']:
                 continue
             else:
-                self.new_entry(segment, grid_layout, i)
-                i += 1
+                self.new_entry(segment, grid_layout, idx)
 
         # show a horizontal line
+        idx += 1
         line = QWidget()
         line.setFixedHeight(3)
         line.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         line.setStyleSheet('background-color: mediumblue')
-        grid_layout.addWidget(line, i, 0, 1, -1)
-        i += 1
+        grid_layout.addWidget(line, idx, 0, 1, -1)
 
         # The treated areas are shown in the lower part of the group box
-        grid_layout.addWidget(QLabel('Segment'), i, 0)
-        grid_layout.addWidget(QLabel('Uncertainty'), i, 1)
-        grid_layout.addWidget(QLabel('Counts'), i, 2)
-        # grid_layout.addWidget(QLabel('Zoom in'), i, 3)
-        grid_layout.addWidget(QLabel('restore'), i, 3)
-        i += 1
+        idx += 1
+        grid_layout.addWidget(QLabel('Segment'), idx, 0)
+        grid_layout.addWidget(QLabel('Uncertainty'), idx, 1)
+        grid_layout.addWidget(QLabel('Counts'), idx, 2)
+        grid_layout.addWidget(QLabel('restore'), idx, 3)
 
-        for segment in self.areas:
+        for idx, segment in enumerate(self.segments, start=idx+1):
             # show only the treated areas
             if segment['done']:
-                self.new_entry(segment, grid_layout, i)
-                i += 1
+                self.new_entry(segment, grid_layout, idx)
             else:
                 continue
 
         # Show the pop-up window
         self.popup_window.show()
         
-    def new_entry(self, segment: dict, grid_layout: QGridLayout, i: int):
+    def new_entry(self, segment: dict, grid_layout: QGridLayout, idx: int):
         """
         New entry for 'Area n' in the grid layout
 
         Parameters
         ----------
         segment : dict
-            'name', 'uncertainty', 'counts', 'com', 'site' and 'done'
+            'name', 'uncertainty', 'counts', 'com', 'indices' and 'done'
             for a specific area
         grid_layout : QGridLayout
             Layout for a QGroupBox
-        i : int
+        idx : int
             Index in the grid_layout
         """
 
@@ -540,25 +538,15 @@ class ExampleQWidget(QWidget):
         if segment['done']:
             # disable button1 for treated areas
             button1.setEnabled(False)
-        grid_layout.addWidget(button1, i, 0)
+        grid_layout.addWidget(button1, idx, 0)
 
-        uncertainty = '%.4f' % (segment['uncertainty'])
+        uncertainty = '%.3f' % (segment['uncertainty'])
         label1 = QLabel(uncertainty)
-        grid_layout.addWidget(label1, i, 1)
+        grid_layout.addWidget(label1, idx, 1)
 
         counts = '%d' % (segment['counts'])
         label2 = QLabel(counts)
-        grid_layout.addWidget(label2, i, 2)
-
-        """
-        button2 = QPushButton('zoom in')
-        button2.clicked.connect(lambda: self.zoom_in(segment, 0.75))
-
-        if segment['done']:
-            # disable button2 for treated areas
-            button2.setEnabled(False)
-        grid_layout.addWidget(button2, i, 3)
-        """
+        grid_layout.addWidget(label2, idx, 2)
 
         if segment['done']:
             button3 = QPushButton('restore')
@@ -566,7 +554,7 @@ class ExampleQWidget(QWidget):
         else:
             button3 = QPushButton('done')
             button3.clicked.connect(lambda: self.done(segment))
-        grid_layout.addWidget(button3, i, 3)
+        grid_layout.addWidget(button3, idx, 3)
 
     """
     def show_area(self, segment: dict):
@@ -589,18 +577,17 @@ class ExampleQWidget(QWidget):
             layer.visible = True
         else:
             # Show the data for a specific segment;
-            site = np.where(self.labels == label)
-            segment['site'] = site      # save the site for later use
+            indices = np.where(self.labels == label)
+            segment['indices'] = indices    # save the indices for later use
             data = np.zeros_like(self.labels)
-            data[site] = label + 1      # build a new label layer
+            data[indices] = label + 1       # build a new label layer
             layer = self.viewer.add_labels(data, name=name)
 
         # Find the center of the data points
         if segment['com'] == None:
             com = ndimage.center_of_mass(data)
             com =  tuple(int(round(c)) for c in com)
-            segment['com'] = com
-            print('center of mass:', segment['com'])
+            print('center of mass:', com)
 
         # Set the appropriate level and focus
         self.viewer.dims.current_step = com
@@ -621,7 +608,7 @@ class ExampleQWidget(QWidget):
         # Determine the segment to be displayed
         label = segment['label']            # target label
         mask  = (self.labels == label)      # Segment mask
-        segment['site'] = np.where(mask)    # save the site for later use
+        segment['indices'] = np.where(mask) # save the indices for later use
 
         # Calculate bounding box
         coords = np.argwhere(mask)
@@ -630,20 +617,19 @@ class ExampleQWidget(QWidget):
 
         # Enlage box
         sz, sy, sx = maxz - minz + 1, maxy - miny + 1, maxx - minx + 1
-        mz = int(sz * margin_factor / 2)
-        my = int(sy * margin_factor / 2)
-        mx = int(sx * margin_factor / 2)
+        size = max(sx, sy, sz)
+        margin = int(size * margin_factor / 2)
 
         # Limitation to the image
         shape = self.image.shape
-        startz = max(minz - mz, 0)
-        starty = max(miny - my, 0)
-        startx = max(minx - mx, 0)
-        endz   = min(maxz + mz + 1, shape[0])
-        endy   = min(maxy + my + 1, shape[1])
-        endx   = min(maxx + mx + 1, shape[2])
+        startz = max(minz - margin, 0)
+        starty = max(miny - margin, 0)
+        startx = max(minx - margin, 0)
+        endz   = min(maxz + margin + 1, shape[0])
+        endy   = min(maxy + margin + 1, shape[1])
+        endx   = min(maxx + margin + 1, shape[2])
 
-        # Save the coordinates of the image section
+        # Save the coordinates of the cropped image
         segment['coords'] = [(startz, starty, startx), (endz, endy, endx)]
 
         # Cropping
@@ -665,7 +651,7 @@ class ExampleQWidget(QWidget):
 
         # Set the appropriate level and focus
         com = ndimage.center_of_mass(masked_labels)     # center of mass
-        segment['com'] = com
+        com = tuple(int(round(c)) for c in com)
         self.viewer.dims.current_step = com
         self.viewer.camera.center = com
 
@@ -714,7 +700,7 @@ class ExampleQWidget(QWidget):
         label       = segment['label']
         uncertainty = segment['uncertainty']
         coords      = segment['coords']
-        site        = segment['site']
+        indices     = segment['indices']
 
         # If a label layer with this name exists:
         if any(layer.name == name and isinstance(layer, napari.layers.Labels)
@@ -734,7 +720,7 @@ class ExampleQWidget(QWidget):
 
             # compare new and old data
             old_data = np.zeros_like(self.labels, dtype=int)
-            old_data[site] = label
+            old_data[indices] = label
             delta = new_data - old_data
 
             add_data = np.where(delta > 0)       # new data points
@@ -819,7 +805,7 @@ class ExampleQWidget(QWidget):
             if 'file' in locals() and file:
                 file.close()
 
-        if self.areas == []:
+        if self.segments == []:
             self.find_segments(self.uncertainty)      # define areas
 
     def save_results(self):
