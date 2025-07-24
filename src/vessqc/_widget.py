@@ -14,7 +14,9 @@ ExampleQWidget
 # Copyright © Peter Lampen, ISAS Dortmund, 2024
 # (03.05.2024)
 
+import copy
 from joblib import Parallel, delayed
+import json
 import numpy as np
 import napari
 from pathlib import Path
@@ -35,6 +37,7 @@ from qtpy.QtWidgets import (
 )
 from scipy import ndimage
 import SimpleITK as sitk
+import tempfile
 from tifffile import imread, imwrite
 import time
 from typing import TYPE_CHECKING
@@ -70,6 +73,19 @@ def _label_value_sparse(uncertainty, uncert, tolerance, structure, value_idx,
         num           = num
     )
     return result
+
+def jsonify(obj):
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, (np.integer, np.floating)):
+        return obj.item()
+    if isinstance(obj, tuple):
+        return [jsonify(x) for x in obj]
+    if isinstance(obj, dict):
+        return {k: jsonify(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [jsonify(x) for x in obj]
+    return obj
 
 
 class ExampleQWidget(QWidget):
@@ -185,7 +201,7 @@ class ExampleQWidget(QWidget):
         label3.setFont(font)
         self.layout().addWidget(label3)
 
-        btnPopupWindow = QPushButton('Show segment list')
+        btnPopupWindow = QPushButton('Show list of segments')
         btnPopupWindow.clicked.connect(self.show_popup_window)
         self.layout().addWidget(btnPopupWindow)
 
@@ -299,8 +315,8 @@ class ExampleQWidget(QWidget):
         self.viewer.add_labels(self.segPred, name=self.stem2)
 
         # Search for the uncertainty file
-        stem3 = self.stem1[:-3] + '_uncertainty'
-        path = self.parent / stem3
+        self.stem3 = self.stem1[:-3] + '_uncertainty'
+        path = self.parent / self.stem3
 
         if path.with_suffix('.tif').is_file():
             path = path.with_suffix('.tif')
@@ -440,7 +456,6 @@ class ExampleQWidget(QWidget):
                 uncertainty = uncert_values[label],
                 counts      = counts[label],
                 coords      = None,     # coordinates of cropped image
-                indices     = None,     # indices of the segments voxels
                 done        = False,
             )
             self.segments.append(segment)
@@ -522,7 +537,7 @@ class ExampleQWidget(QWidget):
         Parameters
         ----------
         segment : dict
-            'name', 'uncertainty', 'counts', 'com', 'indices' and 'done'
+            'name', 'uncertainty', 'counts', 'com', and 'done'
             for a specific area
         grid_layout : QGridLayout
             Layout for a QGroupBox
@@ -578,7 +593,6 @@ class ExampleQWidget(QWidget):
         else:
             # Show the data for a specific segment;
             indices = np.where(self.labels == label)
-            segment['indices'] = indices    # save the indices for later use
             data = np.zeros_like(self.labels)
             data[indices] = label + 1       # build a new label layer
             layer = self.viewer.add_labels(data, name=name)
@@ -608,7 +622,6 @@ class ExampleQWidget(QWidget):
         # Determine the segment to be displayed
         label = segment['label']            # target label
         mask  = (self.labels == label)      # Segment mask
-        segment['indices'] = np.where(mask) # save the indices for later use
 
         # Calculate bounding box
         coords = np.argwhere(mask)
@@ -660,15 +673,15 @@ class ExampleQWidget(QWidget):
 
     def done(self, segment: dict):
         """
-        Transfer data from the area to the labels, segPred and uncertainty
-        layer and close the layer for the area
+        Transfer data from the segment to the labels, segPred and uncertainty
+        layer and close the layers for the cropped images
         """
 
         # (18.07.2024)
         self.compare_and_transfer(segment)  # transfer of data
         segment['done'] = True              # mark this area as treated
 
-        # Show image, segPred und segments
+        # Close cropped images and show image, segPred und labels
         self.viewer.layers.clear()
         self.viewer.add_image(self.image, name=self.stem1)
         self.viewer.add_labels(self.segPred, name=self.stem2)
@@ -686,8 +699,8 @@ class ExampleQWidget(QWidget):
 
     def compare_and_transfer(self, segment: dict):
         """
-        Compare old and new data and transfer the changes to the segPred
-        and uncertainty data
+        Compare old and new data and transfer the changes to the segPred,
+        uncertainty and labels data
 
         Parameters
         ----------
@@ -700,7 +713,6 @@ class ExampleQWidget(QWidget):
         label       = segment['label']
         uncertainty = segment['uncertainty']
         coords      = segment['coords']
-        indices     = segment['indices']
 
         # If a label layer with this name exists:
         if any(layer.name == name and isinstance(layer, napari.layers.Labels)
@@ -711,16 +723,15 @@ class ExampleQWidget(QWidget):
             segment_data = layer.data
 
             # Original coordinates of the segment
-            startz, starty, startx = coords[0]
-            endz,   endy,   endx   = coords[1]
+            start_z, start_y, start_x = coords[0]
+            end_z,   end_y,   end_x   = coords[1]
 
             # Create an empty image and insert the segment data
             new_data = np.zeros_like(self.labels, dtype=int)
-            new_data[startz:endz, starty:endy, startx:endx] = segment_data
+            new_data[start_z:end_z, start_y:end_y, start_x:end_x] = segment_data
 
             # compare new and old data
-            old_data = np.zeros_like(self.labels, dtype=int)
-            old_data[indices] = label
+            old_data = np.where(self.labels == label, label, 0)
             delta = new_data - old_data
 
             add_data = np.where(delta > 0)       # new data points
@@ -743,28 +754,47 @@ class ExampleQWidget(QWidget):
 
         # (26.07.2024)
         # 1st: save the segPred data
-        filename = self.parent / '_segPred.npy'
+        tmp = tempfile.gettempdir()
+        filename = Path(tmp) / self.stem2
+        filename = filename.with_suffix('.npy')
         print('Save', filename)
         try:
-            file = open(filename, 'wb')
-            np.save(file, self.segPred)
+            with open(filename, 'wb') as file:
+                np.save(file, self.segPred)
         except BaseException as error:
             QMessageBox.warning(self, 'I/O Error:', str(error))
-        finally:
-            if 'file' in locals() and file:
-                file.close()
 
-        #2nd: save the uncertainty data
-        filename = self.parent / '_Uncertainty.npy'
+        # 2nd: save the uncertainty data
+        filename = Path(tmp) / self.stem3
+        filename = filename.with_suffix('.npy')
         print('Save', filename)
         try:
-            file = open(filename, 'wb')
-            np.save(file, self.uncertainty)
+            with open(filename, 'wb') as file:
+                np.save(file, self.uncertainty)
         except BaseException as error:
             QMessageBox.warning(self, 'I/O Error:', str(error))
-        finally:
-            if 'file' in locals() and file:
-                file.close()
+
+        # 3rd: save the labels
+        stem4 = self.stem1[:-3] + '_labels'
+        filename = Path(tmp) / stem4
+        filename = filename.with_suffix('.npy')
+        print('Save', filename)
+        try:
+            with open(filename, 'wb') as file:
+                np.save(file, self.labels)
+        except BaseException as error:
+            QMessageBox.warning(self, 'I/O Error:', str(error))
+
+        # 4th: save the segments dictionary
+        stem5 = self.stem1[:-3] + '_segments'
+        filename = Path(tmp) / stem5
+        filename = filename.with_suffix('.json')
+        print('Save', filename)
+        try:
+            with open(filename, 'w') as file:
+                json.dump(jsonify(self.segments), file)
+        except BaseException as error:
+            QMessageBox.warning(self, 'I/O Error:', str(error))
 
     def reload(self):
         """ Read the segPred and uncertainty data from files on drive """
