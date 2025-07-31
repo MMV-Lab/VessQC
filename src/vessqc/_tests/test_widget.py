@@ -24,138 +24,146 @@ from qtpy.QtWidgets import (
     QWidgetItem,
 )
 
-# A single constant
-PARENT = Path(__file__).parent / 'data'
+# A constant with the _data path
+DATA = Path(__file__).parent / '_data'
 
 # make_napari_viewer is a pytest fixture that returns a napari viewer object
 # you don't need to import it, as long as napari is installed in your
 # testing environment
 @pytest.fixture
-def vqc_object(make_napari_viewer, qtbot):
+def get_widget(make_napari_viewer, qtbot):
     # Create an Object of class ExampleQWidget
     # (12.09.2024)
-    widget = ExampleQWidget(make_napari_viewer())
-    qtbot.addWidget(widget)             # Fixture from pytest-qt
-    return widget
+    my_widget = ExampleQWidget(make_napari_viewer())
+    qtbot.addWidget(my_widget)          # Fixture from pytest-qt
+    return my_widget
 
 # define fixtures for the image data
 @pytest.fixture
-def box32x32():
-    return imread(PARENT / 'Box32x32_IM.tif')
+def box32x32_IM():
+    filename = DATA / 'Box32x32_IM.tif'
+    return imread(filename)
 
 @pytest.fixture
-def segmentation():
-    return imread(PARENT / 'Box32x32_segPred.tif')
+def segPred():
+    filename = DATA / 'Box32x32_segPred.tif'
+    return imread(filename)
 
 @pytest.fixture
-def segmentation_new():
+def segPredNew():
     # (24.09.2024)
-    return imread(PARENT / 'Box32x32_segNew.tif')
+    filename = DATA / 'Box32x32_segPredNew.tif'
+    return imread(filename)
 
 @pytest.fixture
 def uncertainty():
-    return imread(PARENT / 'Box32x32_uncertainty.tif')
+    filename = DATA / 'Box32x32_uncertainty.tif'
+    return imread(filename)
 
 @pytest.fixture
-def uncertainty_new():
+def uncertaintyNew():
     # (26.09.2024)
-    return imread(PARENT / 'Box32x32_uncNew.tif')
+    filename = DATA / 'Box32x32_uncertaintyNew.tif'
+    return imread(filename)
 
 @pytest.fixture
 def segment4_data():
     # (20.09.2024)
-    return imread(PARENT / 'Segment_4.tif')
+    filename = DATA / 'Segment4.tif'
+    return imread(filename)
 
 @pytest.fixture
 def segment4_new():
     # (24.09.2024)
-    return imread(PARENT / 'Segment_4_new.tif')
+    filename = DATA / 'Segment4New.tif'
+    return imread(filename)
 
 @pytest.fixture
-def areas(vqc_object, uncertainty):
+def find_segments(get_widget, uncertainty):
     # (18.09.2024)
-    vqc_object.build_areas(uncertainty)
-    return vqc_object.areas
+    get_widget.find_segments(uncertainty)
+    return get_widget.segments
 
 @pytest.mark.init
-def test_init(vqc_object):
+def test_init(get_widget):
     # (12.09.2024)
-    assert isinstance(vqc_object, QWidget)          # Base class of ExampleQWidget
-    assert isinstance(vqc_object, ExampleQWidget)   # Class of vqc_object
+    assert isinstance(get_widget, QWidget)          # Base class of ExampleQWidget
+    assert isinstance(get_widget, ExampleQWidget)   # Class of get_widget
     assert issubclass(ExampleQWidget, QWidget)      # Is QWidget the base class?
-    assert isinstance(vqc_object.viewer, napari.Viewer)
-    assert isinstance(vqc_object.layout(), QVBoxLayout)
-    assert vqc_object.save_uncertainty == False
+    assert isinstance(get_widget.viewer, napari.Viewer)
+    assert isinstance(get_widget.layout(), QVBoxLayout)
+    assert get_widget.save_uncertainty == False
 
 
 @pytest.mark.load_image
-def test_load_image(vqc_object, box32x32):
+def test_load_image(get_widget, box32x32_IM):
     # (12.09.2024)
-    viewer = vqc_object.viewer
+    viewer = get_widget.viewer
 
     with mock.patch("qtpy.QtWidgets.QFileDialog.getOpenFileName",
-        return_value=(PARENT / 'Box32x32_IM.tif', None)) as mock_open:
-        vqc_object.load_image()
+        return_value=(DATA / 'Box32x32_IM.tif', None)) as mock_open:
+        get_widget.load_image()
         mock_open.assert_called_once()
 
-    assert vqc_object.areas == []
-    assert vqc_object.parent == PARENT
-    assert vqc_object.stem1 == 'Box32x32_IM'
-    assert np.array_equal(vqc_object.image, box32x32)
+    assert get_widget.segments == []
+    assert get_widget.parent == DATA
+    assert get_widget.stem1 == 'Box32x32_IM'
+    assert np.array_equal(get_widget.image, box32x32_IM)
 
     # Check the contents of the first Napari layer
     assert len(viewer.layers) == 1
     layer = viewer.layers[0]
     assert layer.name == 'Box32x32_IM'
-    assert np.array_equal(layer.data, box32x32)
+    assert np.array_equal(layer.data, box32x32_IM)
 
 
-@pytest.mark.read_segmentation
-def test_read_segmentation(vqc_object, segmentation, uncertainty):
+@pytest.mark.read_segPred
+def test_read_segPred(get_widget, segPred, uncertainty):
     # (13.09.2024)
-    viewer = vqc_object.viewer
-    vqc_object.stem1 = 'Box32x32_IM'
-    vqc_object.parent = PARENT
-    vqc_object.areas = []
-    vqc_object.read_segmentation()
+    viewer = get_widget.viewer
+    get_widget.stem1 = 'Box32x32_IM'
+    get_widget.parent = DATA
+    get_widget.segments = []
+    get_widget.read_segPred()
 
-    assert np.array_equal(vqc_object.segmentation, segmentation)
-    assert np.array_equal(vqc_object.uncertainty,  uncertainty)
+    assert get_widget.stem2 == 'Box32x32_segPred'
+    assert get_widget.stem3 == 'Box32x32_uncertainty'
+    assert np.array_equal(get_widget.segPred, segPred)
+    assert np.array_equal(get_widget.uncertainty, uncertainty)
 
     # Check the contents of the next Napari layer
-    assert len(viewer.layers) == 1
+    assert len(viewer.layers) == 2
     layer = viewer.layers[0]
-    assert layer.name == 'Segmentation'
-    assert np.array_equal(layer.data, segmentation)
+    assert layer.name == 'Box32x32_segPred'
+    assert np.array_equal(layer.data, segPred)
 
-    assert isinstance(vqc_object.areas, list)
+    assert isinstance(get_widget.segments, list)
 
 
-@pytest.mark.build_areas
-def test_build_areas(vqc_object, uncertainty):
+@pytest.mark.find_segments
+def test_find_segments(get_widget, uncertainty):
     # (17.09.2024)
-    vqc_object.build_areas(uncertainty)
+    get_widget.find_segments(uncertainty)
 
-    assert len(vqc_object.areas) == 9
-    assert vqc_object.areas[0]['name'] == 'Segment_1'
-    assert vqc_object.areas[1]['label'] == 3
-    assert vqc_object.areas[2]['uncertainty'] == np.float32(0.4)
-    assert vqc_object.areas[3]['counts'] == 34
-    assert vqc_object.areas[4]['com'] == None       # center of mass
-    assert vqc_object.areas[5]['site'] == None
-    assert vqc_object.areas[6]['done'] == False
+    assert len(get_widget.segments) == 9
+    assert get_widget.segments[0]['name'] == 'Segment_1'
+    assert get_widget.segments[1]['label'] == 3
+    assert get_widget.segments[2]['uncertainty'] == np.float32(0.4)
+    assert get_widget.segments[3]['counts'] == 34
+    assert get_widget.segments[4]['coords'] == None
+    assert get_widget.segments[5]['done'] == False
 
 
 @pytest.mark.popup_window
-def test_popup_window(vqc_object, areas):
+def test_popup_window(get_widget, segments):
     # (17.09.2024)
-    vqc_object.areas = areas
+    get_widget.segments = segments
 
     with mock.patch("qtpy.QtWidgets.QWidget.show") as mock_show:
-        vqc_object.show_popup_window()
+        get_widget.show_popup_window()
         mock_show.assert_called_once()
 
-    popup_window = vqc_object.popup_window
+    popup_window = get_widget.popup_window
     assert isinstance(popup_window, QWidget)
     assert popup_window.windowTitle() == 'napari'
     assert popup_window.minimumSize() == qtpy.QtCore.QSize(350, 300)
@@ -190,10 +198,10 @@ def test_popup_window(vqc_object, areas):
 
 
 @pytest.mark.new_entry
-def test_new_entry(vqc_object, areas):
+def test_new_entry(get_widget, segments):
     # (18.09.2024)
     grid_layout = QGridLayout()
-    vqc_object.new_entry(areas[2], grid_layout, 3)
+    get_widget.new_entry(segments[2], grid_layout, 3)
     item_0 = grid_layout.itemAtPosition(3, 0)
     item_1 = grid_layout.itemAtPosition(3, 1)
     item_2 = grid_layout.itemAtPosition(3, 2)
@@ -214,30 +222,30 @@ def test_new_entry(vqc_object, areas):
 
 
 @pytest.mark.show_area
-def test_show_area(vqc_object, areas, segment4_data):
+def test_show_area(get_widget, segments, segment4_data):
     # (20.09.2024)
-    vqc_object.areas = areas
+    get_widget.segments = segments
 
-    # Define button1 to call vqc_object.show_area()
+    # Define button1 to call get_widget.show_area()
     widget = QWidget()
     layout = QVBoxLayout()
     widget.setLayout(layout)
     button1 = QPushButton('Segment_4')
-    button1.clicked.connect(vqc_object.show_area)
+    button1.clicked.connect(get_widget.show_area)
     layout.addWidget(button1)
 
     # Here I simulate a mouse click on button1
     QTest.mouseClick(button1, Qt.LeftButton)
 
-    segment = areas[3]
+    segment = segments[3]
     com = (15, 16, 15)                  # center of mass
     assert segment['com'] == com
-    assert vqc_object.viewer.dims.current_step == com
-    assert vqc_object.viewer.camera.center == com
+    assert get_widget.viewer.dims.current_step == com
+    assert get_widget.viewer.camera.center == com
 
     if any(layer.name == 'Segment_4' and isinstance(layer, napari.layers.Labels)
-        for layer in vqc_object.viewer.layers):
-        layer = vqc_object.viewer.layers['Segment_4']
+        for layer in get_widget.viewer.layers):
+        layer = get_widget.viewer.layers['Segment_4']
         assert layer.name == 'Segment_4'
         assert layer.selected_label == 6
         assert np.array_equal(layer.data, segment4_data)
@@ -248,48 +256,48 @@ def test_show_area(vqc_object, areas, segment4_data):
     QTest.mouseClick(button1, Qt.LeftButton)
 
     if any(layer.name == 'Segment_4' and isinstance(layer, napari.layers.Labels)
-        for layer in vqc_object.viewer.layers):
-        layer = vqc_object.viewer.layers['Segment_4']
+        for layer in get_widget.viewer.layers):
+        layer = get_widget.viewer.layers['Segment_4']
         assert layer.name == 'Segment_4'
     else:
         assert False
 
 
 @pytest.mark.transfer
-def test_transfer(vqc_object, segmentation, segmentation_new, uncertainty,
-    uncertainty_new, segment4_data, segment4_new, areas):
+def test_transfer(get_widget, segPred, segPredNew, uncertainty,
+    uncertaintyNew, segment4_data, segment4_new, segments):
     # (24.09.2024)
-    vqc_object.segmentation = segmentation
-    vqc_object.uncertainty = uncertainty
-    segmentation_layer = vqc_object.viewer.add_labels(vqc_object.segmentation,
+    get_widget.segPred = segPred
+    get_widget.uncertainty = uncertainty
+    segPred_layer = get_widget.viewer.add_labels(get_widget.segPred,
         name='Segmentation')
-    vqc_object.areas = areas
+    get_widget.segments = segments
 
-    # Define three buttons to call vqc_object.show_area(), vqc_object.done() and
-    # vqc_object.restore()
+    # Define three buttons to call get_widget.show_area(), get_widget.done() and
+    # get_widget.restore()
     widget = QWidget()
     layout = QVBoxLayout()
     widget.setLayout(layout)
 
     button1 = QPushButton('Segment_4')
-    button1.clicked.connect(vqc_object.show_area)
+    button1.clicked.connect(get_widget.show_area)
     layout.addWidget(button1)
 
     button2 = QPushButton('done', objectName='Segment_4')
-    button2.clicked.connect(vqc_object.done)
+    button2.clicked.connect(get_widget.done)
     layout.addWidget(button2)
 
     button3 = QPushButton('restore', objectName='Segment_4')
-    button3.clicked.connect(vqc_object.restore)
+    button3.clicked.connect(get_widget.restore)
     layout.addWidget(button3)
 
-    # press button1 'Segment_4' to call vqc_object.show_area()
+    # press button1 'Segment_4' to call get_widget.show_area()
     QTest.mouseClick(button1, Qt.LeftButton)
 
     # search for the Napari layer "Segment_4" and change its data
     if any(layer.name == 'Segment_4' and isinstance(layer, napari.layers.Labels)
-        for layer in vqc_object.viewer.layers):
-        layer = vqc_object.viewer.layers['Segment_4']
+        for layer in get_widget.viewer.layers):
+        layer = get_widget.viewer.layers['Segment_4']
         assert layer.name == 'Segment_4'
         assert layer.selected_label == 6
         assert np.array_equal(layer.data, segment4_data)
@@ -299,41 +307,41 @@ def test_transfer(vqc_object, segmentation, segmentation_new, uncertainty,
     else:
         assert False
 
-    # press button2 to call vqc_object.done()
+    # press button2 to call get_widget.done()
     with mock.patch("qtpy.QtWidgets.QWidget.show"):
         QTest.mouseClick(button2, Qt.LeftButton)
 
     # the data in the Napari layers Prediction and Uncertainty should have
     # been changed by the function compare_and_transfer()
-    assert np.array_equal(segmentation_layer.data, segmentation_new)
-    assert np.array_equal(vqc_object.segmentation, segmentation_new)
-    assert np.array_equal(vqc_object.uncertainty,  uncertainty_new)
-    assert areas[3]['done'] == True
+    assert np.array_equal(segPred_layer.data, segPredNew)
+    assert np.array_equal(get_widget.segPred, segPredNew)
+    assert np.array_equal(get_widget.uncertainty,  uncertaintyNew)
+    assert segments[3]['done'] == True
 
     # the Napari layer 'Segment_4' is removed
     if any(layer.name == 'Segment_4' and isinstance(layer, napari.layers.Labels)
-        for layer in vqc_object.viewer.layers):
+        for layer in get_widget.viewer.layers):
         assert False
 
-    # press button3 to call vqc_object.restore()
+    # press button3 to call get_widget.restore()
     with mock.patch("qtpy.QtWidgets.QWidget.show"):
         QTest.mouseClick(button3, Qt.LeftButton)
 
-    assert areas[3]['done'] == False
+    assert segments[3]['done'] == False
 
 
 # tmp_path is a pytest fixture (see lab book from 27.09.2024)
 @pytest.mark.save
-def test_save(tmp_path, vqc_object, segmentation, uncertainty):
+def test_save(tmp_path, get_widget, segPred, uncertainty):
     # (27.09.2024)
-    vqc_object.segmentation = segmentation
-    vqc_object.uncertainty  = uncertainty
-    vqc_object.parent       = tmp_path
-    vqc_object.btn_save()
+    get_widget.segPred = segPred
+    get_widget.uncertainty  = uncertainty
+    get_widget.parent       = tmp_path
+    get_widget.btn_save()
 
     filename = tmp_path / '_Segmentation.npy'
     loaded_data = np.load(str(filename))
-    np.testing.assert_array_equal(loaded_data, segmentation)
+    np.testing.assert_array_equal(loaded_data, segPred)
 
     filename = tmp_path / '_Uncertainty.npy'
     loaded_data = np.load(str(filename))
@@ -341,16 +349,16 @@ def test_save(tmp_path, vqc_object, segmentation, uncertainty):
 
 
 @pytest.mark.save_with_exc
-def test_save_with_exc(tmp_path, vqc_object):
+def test_save_with_exc(tmp_path, get_widget):
     # (27.09.2024)
-    vqc_object.segmentation = np.ones((3, 3, 3), dtype=int)
-    vqc_object.uncertainty  = np.ones((3, 3, 3))
-    vqc_object.parent       = tmp_path
+    get_widget.segPred = np.ones((3, 3, 3), dtype=int)
+    get_widget.uncertainty  = np.ones((3, 3, 3))
+    get_widget.parent       = tmp_path
 
     # Simulate an exception when opening the file
     with mock.patch("builtins.open", side_effect=OSError("File error")), \
          mock.patch("qtpy.QtWidgets.QMessageBox.warning") as mock_warning:
-        vqc_object.btn_save()
+        get_widget.btn_save()
         assert mock_warning.call_count == 2
 
     filename = tmp_path / '_Segmentation.npy'
@@ -361,16 +369,16 @@ def test_save_with_exc(tmp_path, vqc_object):
 
 
 @pytest.mark.reload
-def test_reload(tmp_path, vqc_object, segmentation, uncertainty):
+def test_reload(tmp_path, get_widget, segPred, uncertainty):
     # (01.10.2024)
-    vqc_object.parent = tmp_path
-    vqc_object.areas = []
+    get_widget.parent = tmp_path
+    get_widget.segments = []
 
-    # 1st: save the segmentation data
+    # 1st: save the segPred data
     filename = tmp_path / '_Segmentation.npy'
     try:
         file = open(filename, 'wb')
-        np.save(file, segmentation)
+        np.save(file, segPred)
     except BaseException as error:
         print('Error:', error)
         assert False
@@ -390,34 +398,34 @@ def test_reload(tmp_path, vqc_object, segmentation, uncertainty):
         if 'file' in locals() and file:
             file.close()
 
-    vqc_object.reload()
+    get_widget.reload()
 
-    # Test the content of the Napari layer and vqc_object nD arrays
-    assert len(vqc_object.viewer.layers) == 1
-    layer = vqc_object.viewer.layers[0]
+    # Test the content of the Napari layer and get_widget nD arrays
+    assert len(get_widget.viewer.layers) == 1
+    layer = get_widget.viewer.layers[0]
     assert layer.name == 'Segmentation'
-    np.testing.assert_array_equal(layer.data,          segmentation)
-    np.testing.assert_array_equal(vqc_object.segmentation, segmentation)
-    np.testing.assert_array_equal(vqc_object.uncertainty,  uncertainty)
+    np.testing.assert_array_equal(layer.data,          segPred)
+    np.testing.assert_array_equal(get_widget.segPred, segPred)
+    np.testing.assert_array_equal(get_widget.uncertainty,  uncertainty)
 
-    # Test vqc_object.areas
-    assert len(vqc_object.areas) == 9
-    assert vqc_object.areas[0]['name'] == 'Segment_1'
-    assert vqc_object.areas[1]['label'] == 3
-    assert vqc_object.areas[2]['uncertainty'] == np.float32(0.4)
-    assert vqc_object.areas[3]['counts'] == 34
-    assert vqc_object.areas[4]['com'] == None
-    assert vqc_object.areas[5]['site'] == None
-    assert vqc_object.areas[6]['done'] == False
+    # Test get_widget.segments
+    assert len(get_widget.segments) == 9
+    assert get_widget.segments[0]['name'] == 'Segment_1'
+    assert get_widget.segments[1]['label'] == 3
+    assert get_widget.segments[2]['uncertainty'] == np.float32(0.4)
+    assert get_widget.segments[3]['counts'] == 34
+    assert get_widget.segments[4]['com'] == None
+    assert get_widget.segments[5]['site'] == None
+    assert get_widget.segments[6]['done'] == False
 
 
 @pytest.mark.reload_with_exc
-def test_reload_with_exc(tmp_path, vqc_object):
+def test_reload_with_exc(tmp_path, get_widget):
     # (01.10.2024)
-    vqc_object.segmentation = np.ones((3, 3, 3), dtype=int)
-    vqc_object.uncertainty  = np.ones((3, 3, 3))
-    vqc_object.parent       = tmp_path
-    vqc_object.areas        = []
+    get_widget.segPred = np.ones((3, 3, 3), dtype=int)
+    get_widget.uncertainty  = np.ones((3, 3, 3))
+    get_widget.parent       = tmp_path
+    get_widget.segments        = []
 
     real_open = builtins.open       # Save original
 
@@ -430,28 +438,28 @@ def test_reload_with_exc(tmp_path, vqc_object):
     # simulate an exception when opening the file
     with mock.patch("builtins.open", side_effect=open_side_effect), \
          mock.patch("qtpy.QtWidgets.QMessageBox.warning") as mock_warning:
-        vqc_object.reload()
+        get_widget.reload()
         assert mock_warning.call_count == 1
 
-    assert len(vqc_object.viewer.layers) == 0
-    assert vqc_object.areas == []
+    assert len(get_widget.viewer.layers) == 0
+    assert get_widget.segments == []
 
 
-@pytest.mark.final_segmentation
-def test_final_segmentation(tmp_path, vqc_object, segmentation, uncertainty):
+@pytest.mark.final_segPred
+def test_final_segPred(tmp_path, get_widget, segPred, uncertainty):
     # (01.10.2024)
-    vqc_object.segmentation = segmentation
-    vqc_object.uncertainty = uncertainty
-    vqc_object.parent = tmp_path
-    vqc_object.stem1 = 'Box32x32_IM'
-    vqc_object.save_uncertainty = True
+    get_widget.segPred = segPred
+    get_widget.uncertainty = uncertainty
+    get_widget.parent = tmp_path
+    get_widget.stem1 = 'Box32x32_IM'
+    get_widget.save_uncertainty = True
     filename1 = str(tmp_path / 'Box32x32_segNew.tif')
     filename2 = str(tmp_path / 'Box32x32_uncNew.tif')
 
-    # call the function final_segmentation()
+    # call the function final_segPred()
     with mock.patch("qtpy.QtWidgets.QFileDialog.getSaveFileName",
         return_value=(filename1, None)) as mock_save:
-        vqc_object.final_segmentation()
+        get_widget.final_segPred()
         mock_save.assert_called_once()
 
     try:
@@ -466,18 +474,18 @@ def test_final_segmentation(tmp_path, vqc_object, segmentation, uncertainty):
         print('Error:', error)
         assert False
 
-    np.testing.assert_array_equal(seg_saved_data, segmentation)
+    np.testing.assert_array_equal(seg_saved_data, segPred)
     np.testing.assert_array_equal(unc_saved_data, uncertainty)
 
 
-@pytest.mark.final_segmentation_write_error
-def test_final_segmentation_write_error(tmp_path, vqc_object):
+@pytest.mark.final_segPred_write_error
+def test_final_segPred_write_error(tmp_path, get_widget):
     # (13.06.2025)
-    vqc_object.segmentation = np.ones((3, 3, 3), dtype=int)
-    vqc_object.uncertainty  = np.ones((3, 3, 3))
-    vqc_object.parent       = tmp_path
-    vqc_object.stem1        = 'Box32x32_IM'
-    vqc_object.save_uncertainty = False
+    get_widget.segPred = np.ones((3, 3, 3), dtype=int)
+    get_widget.uncertainty  = np.ones((3, 3, 3))
+    get_widget.parent       = tmp_path
+    get_widget.stem1        = 'Box32x32_IM'
+    get_widget.save_uncertainty = False
     filename1 = str(tmp_path / 'Box32x32_segNew.tif')
 
     with mock.patch("qtpy.QtWidgets.QFileDialog.getSaveFileName",
@@ -487,7 +495,7 @@ def test_final_segmentation_write_error(tmp_path, vqc_object):
          mock.patch.object(QMessageBox, "warning") as mock_warning:
         # Patch of the "warning" method of the "QMessageBox" class
 
-        vqc_object.final_segmentation()
+        get_widget.final_segPred()
 
         mock_warning.assert_called_once()
         assert 'Segmentation error' in mock_warning.call_args[0][2]
@@ -495,13 +503,13 @@ def test_final_segmentation_write_error(tmp_path, vqc_object):
 
 
 @pytest.mark.final_uncertainty_write_error
-def test_final_uncertainty_write_error(tmp_path, vqc_object):
+def test_final_uncertainty_write_error(tmp_path, get_widget):
     # (13.06.2025)
-    vqc_object.segmentation = np.ones((3, 3, 3), dtype=int)
-    vqc_object.uncertainty  = np.ones((3, 3, 3))
-    vqc_object.parent       = tmp_path
-    vqc_object.stem1        = 'Box32x32_IM'
-    vqc_object.save_uncertainty = True
+    get_widget.segPred = np.ones((3, 3, 3), dtype=int)
+    get_widget.uncertainty  = np.ones((3, 3, 3))
+    get_widget.parent       = tmp_path
+    get_widget.stem1        = 'Box32x32_IM'
+    get_widget.save_uncertainty = True
     filename1 = str(tmp_path / 'Box32x32_segNew.tif')
     filename2 = str(tmp_path / 'Box32x32_uncNew.tif')
 
@@ -511,7 +519,7 @@ def test_final_uncertainty_write_error(tmp_path, vqc_object):
             side_effect=[None, BaseException("Uncertainty error")]), \
          mock.patch.object(QMessageBox, "warning") as mock_warning:
 
-        vqc_object.final_segmentation()
+        get_widget.final_segPred()
 
         assert mock_warning.call_count == 1
         assert 'Uncertainty error' in mock_warning.call_args[0][2]
@@ -520,13 +528,13 @@ def test_final_uncertainty_write_error(tmp_path, vqc_object):
 
 
 @pytest.mark.info_image
-def test_btn_info_image_layer(vqc_object, capsys):
+def test_btn_info_image_layer(get_widget, capsys):
     # Image-Layer hinzufügen
     image = np.random.rand(3, 3, 3)
-    layer = vqc_object.viewer.add_image(image, name="TestImage")
-    vqc_object.viewer.layers.selection.active = layer
+    layer = get_widget.viewer.add_image(image, name="TestImage")
+    get_widget.viewer.layers.selection.active = layer
 
-    vqc_object.btn_info()
+    get_widget.btn_info()
     captured = capsys.readouterr()
 
     assert "layer: TestImage" in captured.out
@@ -536,12 +544,12 @@ def test_btn_info_image_layer(vqc_object, capsys):
 
 
 @pytest.mark.info_labels
-def test_btn_info_labels_layer(vqc_object, capsys):
+def test_btn_info_labels_layer(get_widget, capsys):
     labels = np.random.randint(0, high=10, size=(3, 3, 3), dtype=int)
-    layer  = vqc_object.viewer.add_labels(labels, name="TestLabels")
-    vqc_object.viewer.layers.selection.active = layer
+    layer  = get_widget.viewer.add_labels(labels, name="TestLabels")
+    get_widget.viewer.layers.selection.active = layer
 
-    vqc_object.btn_info()
+    get_widget.btn_info()
     captured = capsys.readouterr()
 
     assert "layer: TestLabels" in captured.out
