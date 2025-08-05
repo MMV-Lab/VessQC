@@ -211,7 +211,7 @@ def test_popup_window(widget0, segments):
 
     popup_window = widget0.popup_window
     assert isinstance(popup_window, QWidget)
-    assert popup_window.windowTitle() == 'napari'
+    assert popup_window.windowTitle() == 'Napari (Segment list)'
     assert popup_window.minimumSize() == qtpy.QtCore.QSize(350, 300)
 
     layout = popup_window.layout()
@@ -226,7 +226,7 @@ def test_popup_window(widget0, segments):
 
     group_box = scroll_area.widget()
     assert isinstance(group_box, QGroupBox)
-    assert group_box.title() == 'Uncertainty list'
+    assert group_box.title() == 'List of segments:'
 
     grid_layout = group_box.layout()
     assert isinstance(grid_layout, QGridLayout)
@@ -238,7 +238,7 @@ def test_popup_window(widget0, segments):
     item_2 = grid_layout.itemAtPosition(5, 2)
     item_3 = grid_layout.itemAtPosition(5, 3)
     assert item_0.widget().text() == 'Segment_5'
-    assert item_1.widget().text() == '0.60000'
+    assert item_1.widget().text() == '0.600'
     assert item_2.widget().text() == '37'
     assert item_3.widget().text() == 'done'
 
