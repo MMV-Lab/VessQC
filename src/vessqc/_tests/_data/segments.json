@@ -1,0 +1,74 @@
+[
+  {
+    "name": "Segment_1",
+    "label": 2,
+    "uncertainty": 0.20000000298023224,
+    "counts": 37,
+    "coords": null,
+    "done": false
+  },
+  {
+    "name": "Segment_2",
+    "label": 3,
+    "uncertainty": 0.30000001192092896,
+    "counts": 34,
+    "coords": null,
+    "done": false
+  },
+  {
+    "name": "Segment_3",
+    "label": 4,
+    "uncertainty": 0.4000000059604645,
+    "counts": 35,
+    "coords": null,
+    "done": false
+  },
+  {
+    "name": "Segment_4",
+    "label": 5,
+    "uncertainty": 0.5,
+    "counts": 34,
+    "coords": null,
+    "done": false
+  },
+  {
+    "name": "Segment_5",
+    "label": 6,
+    "uncertainty": 0.6000000238418579,
+    "counts": 37,
+    "coords": null,
+    "done": false
+  },
+  {
+    "name": "Segment_6",
+    "label": 7,
+    "uncertainty": 0.699999988079071,
+    "counts": 34,
+    "coords": null,
+    "done": false
+  },
+  {
+    "name": "Segment_7",
+    "label": 8,
+    "uncertainty": 0.800000011920929,
+    "counts": 35,
+    "coords": null,
+    "done": false
+  },
+  {
+    "name": "Segment_8",
+    "label": 9,
+    "uncertainty": 0.8999999761581421,
+    "counts": 12,
+    "coords": null,
+    "done": false
+  },
+  {
+    "name": "Segment_9",
+    "label": 10,
+    "uncertainty": 0.9999,
+    "counts": 1,
+    "coords": null,
+    "done": false
+  }
+]
