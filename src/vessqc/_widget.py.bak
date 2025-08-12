@@ -20,7 +20,11 @@ import json
 import numpy as np
 import napari
 from pathlib import Path
-from qtpy.QtCore import QSize, Qt
+from qtpy.QtCore import (
+    QSize,
+    Qt,
+    QTimer,
+)
 from qtpy.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -130,7 +134,7 @@ class ExampleQWidget(QWidget):
         Define areas that correspond to values of equal uncertainty
     show_popup_window()
         Define a pop-up window for the uncertainty list
-    new_entry(segment: dict, grid_layout: QGridLayout, i: int):
+    new_entry(segment: dict, i: int):
         New entry for 'Area n' in the grid layout
     show_area()
         Show the data for a specific uncertanty in a new label layer
@@ -169,6 +173,8 @@ class ExampleQWidget(QWidget):
         # (03.05.2024)
         super().__init__()
         self.viewer = viewer
+        self.segments = []
+        self.save_uncertainty = False
 
         # Define the layout of the main widget
         self.setLayout(QVBoxLayout())
@@ -221,19 +227,100 @@ class ExampleQWidget(QWidget):
         btnSaveResult.clicked.connect(self.save_final_result)
         self.layout().addWidget(btnSaveResult)
 
-        self.save_uncertainty = False
         cbxSaveUncertainty = QCheckBox('Save uncertainty')
         cbxSaveUncertainty.stateChanged.connect(self.checkbox_save_uncertainty)
         self.layout().addWidget(cbxSaveUncertainty)
 
+        self.init_popup_window()
+
+    def init_popup_window(self):
+        """ Define a popup window for the list of segments """
+
+        # (07.08.2025)
+        self.popup_window = QWidget()
+        self.popup_window.setWindowTitle('Napari (segment list)')
+        self.popup_window.setMinimumSize(QSize(350, 300))
+
+        vbox_layout = QVBoxLayout()
+        self.popup_window.setLayout(vbox_layout)
+
+        # define a scroll area inside the pop-up window
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        vbox_layout.addWidget(scroll_area)
+
+        # Define a group box inside the scroll area
+        group_box = QGroupBox('List of segments:')
+        scroll_area.setWidget(group_box)
+
+        self.grid_layout = QGridLayout()
+        group_box.setLayout(self.grid_layout)
+
+    def update_popup_content(self):
+        """ Fills the existing layout with current content """
+
+        # (24.05.2024, revised on 07.08.2025)
+        if getattr(self, '_updating', False):
+            return
+        self._updating = True
+        print('update_popup_content() called')
+
+        # Remove previous content
+        while self.grid_layout.count():
+            child = self.grid_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+
+        # Header
+        self.grid_layout.addWidget(QLabel('Segment'), 0, 0)
+        self.grid_layout.addWidget(QLabel('Uncertainty'), 0, 1)
+        self.grid_layout.addWidget(QLabel('Counts'), 0, 2)
+        self.grid_layout.addWidget(QLabel('done'), 0, 3)
+
+        # Define buttons and select values for some labels
+        idx = 1
+        for segment in self.segments:
+            if not segment['done']:     # Show only the untreated segments
+                self.new_entry(segment, idx)
+                idx += 1
+
+        # Dividing line
+        line = QWidget()
+        line.setFixedHeight(3)
+        line.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        line.setStyleSheet('background-color: mediumblue')
+        self.grid_layout.addWidget(line, idx, 0, 1, 4)
+
+        # Lower part: treated segments
+        idx += 1
+        self.grid_layout.addWidget(QLabel('Segment'), idx, 0)
+        self.grid_layout.addWidget(QLabel('Uncertainty'), idx, 1)
+        self.grid_layout.addWidget(QLabel('Counts'), idx, 2)
+        self.grid_layout.addWidget(QLabel('restore'), idx, 3)
+        idx += 1
+
+        for segment in self.segments:
+            if segment['done']:     # show only the treated segments
+                self.new_entry(segment, idx)
+                idx += 1
+
+        self._updating = False
+
+    def show_popup_window(self):
+        """ Displays the window and updates its contents """
+
+        # (07.08.2025)
+        if not self.popup_window.isVisible():
+            self.update_popup_content()
+            self.popup_window.show()
+            self.popup_window.raise_()
+        
     def load_image(self):
         """
         Read the image file and save it in an image layer
         """
 
         # (23.05.2024);
-        self.segments = []
-
         # Find and load the image file
         filter1 = "TIFF files (*.tif *.tiff);;NIfTI files (*.nii *.nii.gz);;\
             All files (*.*)"
@@ -270,6 +357,7 @@ class ExampleQWidget(QWidget):
             return
 
         self.viewer.add_image(self.image, name=self.stem1)   # Show the image
+        self.segments.clear()
 
     def read_segPred(self):
         """
@@ -393,7 +481,6 @@ class ExampleQWidget(QWidget):
             values   = [uncert] * num
             u_values = dict(zip(keys, values))
             uncert_values = {**uncert_values, **u_values}
-
         print('Done in', time.time() - t0, 's')
 
         # Determine all labels that appear less than 10 times
@@ -436,67 +523,7 @@ class ExampleQWidget(QWidget):
         # Display the segments in an label layer
         self.viewer.add_labels(self.labels, name='Segmentation')
 
-    def show_popup_window(self):
-        """ Define a pop-up window for the uncertainty list """
-
-        # (24.05.2024)
-        self.popup_window = QWidget()
-        self.popup_window.setWindowTitle('Napari (Segment list)')
-        self.popup_window.setMinimumSize(QSize(350, 300))
-        vbox_layout = QVBoxLayout()
-        self.popup_window.setLayout(vbox_layout)
-
-        # define a scroll area inside the pop-up window
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        vbox_layout.addWidget(scroll_area)
-
-        # Define a group box inside the scroll area
-        group_box = QGroupBox('List of segments:')
-        scroll_area.setWidget(group_box)
-        grid_layout = QGridLayout()
-        group_box.setLayout(grid_layout)
-
-        # add widgets to the group box
-        grid_layout.addWidget(QLabel('Segment'), 0, 0)
-        grid_layout.addWidget(QLabel('Uncertainty'), 0, 1)
-        grid_layout.addWidget(QLabel('Counts'), 0, 2)
-        grid_layout.addWidget(QLabel('done'), 0, 3)
-
-        # Define buttons and select values for some labels
-        for idx, segment in enumerate(self.segments, start=1):
-            # Show only the untreated areas
-            if segment['done']:
-                continue
-            else:
-                self.new_entry(segment, grid_layout, idx)
-
-        # show a horizontal line
-        idx += 1
-        line = QWidget()
-        line.setFixedHeight(3)
-        line.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        line.setStyleSheet('background-color: mediumblue')
-        grid_layout.addWidget(line, idx, 0, 1, -1)
-
-        # The treated areas are shown in the lower part of the group box
-        idx += 1
-        grid_layout.addWidget(QLabel('Segment'), idx, 0)
-        grid_layout.addWidget(QLabel('Uncertainty'), idx, 1)
-        grid_layout.addWidget(QLabel('Counts'), idx, 2)
-        grid_layout.addWidget(QLabel('restore'), idx, 3)
-
-        for idx, segment in enumerate(self.segments, start=idx+1):
-            # show only the treated areas
-            if segment['done']:
-                self.new_entry(segment, grid_layout, idx)
-            else:
-                continue
-
-        # Show the pop-up window
-        self.popup_window.show()
-        
-    def new_entry(self, segment: dict, grid_layout: QGridLayout, idx: int):
+    def new_entry(self, segment: dict, idx: int):
         """
         New entry for 'Area n' in the grid layout
 
@@ -505,10 +532,8 @@ class ExampleQWidget(QWidget):
         segment : dict
             'name', 'uncertainty', 'counts', 'com', and 'done'
             for a specific area
-        grid_layout : QGridLayout
-            Layout for a QGroupBox
         idx : int
-            Index in the grid_layout
+            Index in the self.grid_layout
         """
 
         # (13.08.2024)
@@ -519,15 +544,15 @@ class ExampleQWidget(QWidget):
         if segment['done']:
             # disable button1 for treated areas
             button1.setEnabled(False)
-        grid_layout.addWidget(button1, idx, 0)
+        self.grid_layout.addWidget(button1, idx, 0)
 
         uncertainty = '%.3f' % (segment['uncertainty'])
         label1 = QLabel(uncertainty)
-        grid_layout.addWidget(label1, idx, 1)
+        self.grid_layout.addWidget(label1, idx, 1)
 
         counts = '%d' % (segment['counts'])
         label2 = QLabel(counts)
-        grid_layout.addWidget(label2, idx, 2)
+        self.grid_layout.addWidget(label2, idx, 2)
 
         if segment['done']:
             button3 = QPushButton('restore')
@@ -535,7 +560,7 @@ class ExampleQWidget(QWidget):
         else:
             button3 = QPushButton('done')
             button3.clicked.connect(lambda: self.done(segment))
-        grid_layout.addWidget(button3, idx, 3)
+        self.grid_layout.addWidget(button3, idx, 3)
 
     def zoom_in(self, segment: dict, margin_factor: float):
         """
@@ -604,8 +629,16 @@ class ExampleQWidget(QWidget):
         """
 
         # (18.07.2024)
+        if getattr(self, '_updating', False):
+            return
+        else:
+            print(time.time(), 'done() called', segment['name'])
+            t0 = time.time()
+
         self.compare_and_transfer(segment)  # transfer of data
+        print(time.time(), 'compare_and_transfer end, took', time.time()-t0)
         segment['done'] = True              # mark this area as treated
+        print(time.time(), 'segment marked done')
 
         # Close cropped images and show image, segPred und labels
         self.viewer.layers.clear()
@@ -613,15 +646,22 @@ class ExampleQWidget(QWidget):
         self.viewer.add_labels(self.segPred, name=self.stem2)
         self.viewer.add_labels(self.labels, name='Segmentation')
 
-        # open a new pop-up window
-        self.show_popup_window()
-
+        if hasattr(self, 'popup_window') and self.popup_window.isVisible():
+            # Run this code as soon as you are done with the current event.
+            QTimer.singleShot(0, self.update_popup_content)
+        print(time.time(), 'scheduled update_popup_content')
+ 
     def restore(self, segment: dict):
         """ Restore the data of a specific area in the pop-up window """
 
         # (19.07.2024)
+        if getattr(self, '_updating', False):
+            return
+
         segment['done'] = False
-        self.show_popup_window()
+
+        if hasattr(self, 'popup_window') and self.popup_window.isVisible():
+            QTimer.singleShot(0, self.update_popup_content)
 
     def compare_and_transfer(self, segment: dict):
         """
@@ -781,9 +821,6 @@ class ExampleQWidget(QWidget):
         self.viewer.add_labels(self.segPred, name=self.stem2)
         self.viewer.add_labels(self.labels, name='Segmentation')
 
-        # open a new pop-up window
-        self.show_popup_window()
-
     def save_final_result(self):
         """
         Close all open segment layers, save the segPred and if applicable also
@@ -840,9 +877,6 @@ class ExampleQWidget(QWidget):
         self.viewer.add_image(self.image, name=self.stem1)
         self.viewer.add_labels(self.segPred, name=self.stem2)
         self.viewer.add_labels(self.labels, name='Segmentation')
-
-        # open a new pop-up window
-        self.show_popup_window()
 
     def checkbox_save_uncertainty(self, state: Qt.Checked):
         """ Toggle the bool variable save_uncertainty """
