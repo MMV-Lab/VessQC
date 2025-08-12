@@ -188,6 +188,10 @@ class ExampleQWidget(QWidget):
         btnSegPred.clicked.connect(self.read_segPred)
         self.layout().addWidget(btnSegPred)
 
+        btnShowUncert = QPushButton('Show uncertainty data')
+        btnShowUncert.clicked.connect(self.show_uncertainty)
+        self.layout().addWidget(btnShowUncert)
+
         # Test output
         btnInfo = QPushButton('Info')
         btnInfo.clicked.connect(self.btn_info)
@@ -352,6 +356,16 @@ class ExampleQWidget(QWidget):
 
         if self.segments == []:
             self.find_segments(self.uncertainty)
+
+    def show_uncertainty(self, uncertainty: np.ndarray):
+        """ Show an image layer with the uncertainty data """
+
+        # (12.08.2025)
+        if hasattr(self, 'uncertainty'):
+            self.viewer.add_image(self.uncertainty, name='uncertainty',
+                colormap='inferno')
+        else:
+            QMessageBox.information(self, 'Note', 'Uncertainty is not defined')
 
     def find_segments(self, uncertainty: np.ndarray):
         """ Define segments that correspond to values of equal uncertainty """
@@ -781,9 +795,6 @@ class ExampleQWidget(QWidget):
         self.viewer.add_labels(self.segPred, name=self.stem2)
         self.viewer.add_labels(self.labels, name='Segmentation')
 
-        # open a new pop-up window
-        self.show_popup_window()
-
     def save_final_result(self):
         """
         Close all open segment layers, save the segPred and if applicable also
@@ -840,9 +851,6 @@ class ExampleQWidget(QWidget):
         self.viewer.add_image(self.image, name=self.stem1)
         self.viewer.add_labels(self.segPred, name=self.stem2)
         self.viewer.add_labels(self.labels, name='Segmentation')
-
-        # open a new pop-up window
-        self.show_popup_window()
 
     def checkbox_save_uncertainty(self, state: Qt.Checked):
         """ Toggle the bool variable save_uncertainty """
