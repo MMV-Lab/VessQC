@@ -26,10 +26,6 @@ from tifffile import imread, imwrite
 from unittest import mock
 from vessqc import ExampleQWidget
 
-# A constant with the _data path
-DATA = Path(__file__).parent / '_data'
-
-
 def normalize_for_json(data):
     # Suggestion from ChatGPT
     import numpy as np
@@ -45,6 +41,9 @@ def normalize_for_json(data):
         return data.tolist()
     else:
         return data
+
+# A constant with the _data path
+DATA = Path(__file__).parent / '_data'
 
 # make_napari_viewer is a pytest fixture that returns a napari viewer object
 # you don't need to import it, as long as napari is installed in your
@@ -291,12 +290,12 @@ def test_zoom_in(widget, image, segPred, labels, cropped_segPred,
     layer = widget.viewer.layers[name]
     assert np.array_equal(layer.data, segment_4)
 
-    assert widget.segments[3]['coords'] == [(13, 13, 12), (18, 20, 19)]
+    assert widget.segments[3]['coords'] == [[13, 13, 12], [18, 20, 19]]
     
 
-@pytest.mark.transfer
-def test_transfer(widget, image, segPred, segPredNew, uncertainty,
-    uncertaintyNew, labels, labelsNew, segment_4, segment_4New, segments):
+@pytest.mark.done
+def test_done(widget, image, segPred, segPredNew, uncertainty, uncertaintyNew,
+    labels, labelsNew, segment_4New, segments):
     # (24.09.2024)
     widget.image       = image
     widget.segPred     = segPred
@@ -307,28 +306,35 @@ def test_transfer(widget, image, segPred, segPredNew, uncertainty,
     widget.stem2       = 'Box32x32_segPred'
 
     segment = segments[3]
-    segment['coords'] = [(13, 13, 12), (18, 20, 19)]
+    segment['coords'] = [[13, 13, 12], [18, 20, 19]]
 
     widget.viewer.add_labels(segment_4New, name='Segment_4')
 
     # Call the function done(segment)
     with mock.patch("qtpy.QtWidgets.QWidget.show") as mock_show:
         widget.done(segment)
-        mock_show.assert_called_once()
+        assert mock_show.call_count == 2
 
     # the data in widget.segPred and widget.labels should have been changed
     # by the function compare_and_transfer()
-    assert np.array_equal(widget.segPred, segPredNew)
-    assert np.array_equal(widget.labels,  labelsNew)
+    assert np.array_equal(widget.labels,      labelsNew)
+    assert np.array_equal(widget.segPred,     segPredNew)
+    assert np.array_equal(widget.uncertainty, uncertaintyNew)
     assert segments[3]['done'] == True
 
-    """
-    # press button3 to call widget.restore()
-    with mock.patch("qtpy.QtWidgets.QWidget.show"):
-        QTest.mouseClick(button3, Qt.LeftButton)
+
+@pytest.mark.restore
+def test_restore(widget, segments):
+    # (13.08.2025)
+    widget.segments = segments
+    segment = segments[3]
+
+    with mock.patch("qtpy.QtWidgets.QWidget.show") as mock_show:
+        widget.restore(segment)
+        mock_show.assert_called_once()
 
     assert segments[3]['done'] == False
-    """
+
 
 # tmp_path is a pytest fixture (see lab book from 27.09.2024)
 @pytest.mark.save

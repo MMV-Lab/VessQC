@@ -169,6 +169,8 @@ class ExampleQWidget(QWidget):
         # (03.05.2024)
         super().__init__()
         self.viewer = viewer
+        self.segments = []
+        self.save_uncertainty = False
 
         # Define the layout of the main widget
         self.setLayout(QVBoxLayout())
@@ -225,7 +227,6 @@ class ExampleQWidget(QWidget):
         btnSaveResult.clicked.connect(self.save_final_result)
         self.layout().addWidget(btnSaveResult)
 
-        self.save_uncertainty = False
         cbxSaveUncertainty = QCheckBox('Save uncertainty')
         cbxSaveUncertainty.stateChanged.connect(self.checkbox_save_uncertainty)
         self.layout().addWidget(cbxSaveUncertainty)
@@ -236,7 +237,6 @@ class ExampleQWidget(QWidget):
         """
 
         # (23.05.2024);
-        self.segments = []
 
         # Find and load the image file
         filter1 = "TIFF files (*.tif *.tiff);;NIfTI files (*.nii *.nii.gz);;\
@@ -274,6 +274,7 @@ class ExampleQWidget(QWidget):
             return
 
         self.viewer.add_image(self.image, name=self.stem1)   # Show the image
+        self.segments.clear()
 
     def read_segPred(self):
         """
@@ -455,7 +456,7 @@ class ExampleQWidget(QWidget):
 
         # (24.05.2024)
         self.popup_window = QWidget()
-        self.popup_window.setWindowTitle('Napari (Segment list)')
+        self.popup_window.setWindowTitle('Napari (segment list)')
         self.popup_window.setMinimumSize(QSize(350, 300))
         vbox_layout = QVBoxLayout()
         self.popup_window.setLayout(vbox_layout)
@@ -583,7 +584,7 @@ class ExampleQWidget(QWidget):
         endx   = min(maxx + margin + 1, shape[2])
 
         # Save the coordinates of the cropped image
-        segment['coords'] = [(startz, starty, startx), (endz, endy, endx)]
+        segment['coords'] = [[startz, starty, startx], [endz, endy, endx]]
 
         # Cropping
         cropped_image = self.image[startz:endz, starty:endy, startx:endx]
