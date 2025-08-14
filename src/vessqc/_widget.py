@@ -691,7 +691,9 @@ class ExampleQWidget(QWidget):
             self.uncertainty[del_data] = 0.0
 
     def save_intermediate_data(self):
-        """ Save the segPred and uncertainty data to files on hard drive """
+        """
+        Save the segPred, uncertainty and labels data to files on hard drive.
+        """
 
         # (26.07.2024)
         tmp = tempfile.gettempdir()
@@ -701,7 +703,7 @@ class ExampleQWidget(QWidget):
         filename = tmp.joinpath(self.stem2).with_suffix('.npy')
         print('Save', filename)
         try:
-            with open(filename, 'wb') as file:
+            with filename.open('wb') as file:
                 np.save(file, self.segPred)
         except BaseException as error:
             QMessageBox.warning(self, 'I/O Error:', str(error))
@@ -710,7 +712,7 @@ class ExampleQWidget(QWidget):
         filename = tmp.joinpath(self.stem3).with_suffix('.npy')
         print('Save', filename)
         try:
-            with open(filename, 'wb') as file:
+            with filename.open('wb') as file:
                 np.save(file, self.uncertainty)
         except BaseException as error:
             QMessageBox.warning(self, 'I/O Error:', str(error))
@@ -720,7 +722,7 @@ class ExampleQWidget(QWidget):
         filename = tmp.joinpath(stem4).with_suffix('.npy')
         print('Save', filename)
         try:
-            with open(filename, 'wb') as file:
+            with filename.open('wb') as file:
                 np.save(file, self.labels)
         except BaseException as error:
             QMessageBox.warning(self, 'I/O Error:', str(error))
@@ -730,8 +732,8 @@ class ExampleQWidget(QWidget):
         filename = tmp.joinpath(stem5).with_suffix('.json')
         print('Save', filename)
         try:
-            with open(filename, 'w') as file:
-                json.dump(jsonify(self.segments), file)
+            with filename.open('w', encoding='utf-8') as file:
+                json.dump(jsonify(self.segments), file, indent=2)
         except BaseException as error:
             QMessageBox.warning(self, 'I/O Error:', str(error))
 
@@ -749,7 +751,7 @@ class ExampleQWidget(QWidget):
         filename = tmp.joinpath(self.stem2).with_suffix('.npy')
         print('Read', filename)
         try:
-            with open(filename, 'rb') as file:
+            with filename.open('rb') as file:
                 self.segPred = np.load(file)
         except BaseException as error:
             QMessageBox.warning(self, 'I/O Error:', str(error))
@@ -762,7 +764,7 @@ class ExampleQWidget(QWidget):
         filename = tmp.joinpath(self.stem3).with_suffix('.npy')
         print('Read', filename)
         try:
-            with open(filename, 'rb') as file:
+            with filename.open('rb') as file:
                 self.uncertainty = np.load(file)
         except BaseException as error:
             QMessageBox.warning(self, 'I/O Error:', str(error))
@@ -773,7 +775,7 @@ class ExampleQWidget(QWidget):
         filename = tmp.joinpath(stem4).with_suffix('.npy')
         print('Read', filename)
         try:
-            with open(filename, 'rb') as file:
+            with filename.open('rb') as file:
                 self.labels = np.load(file)
         except BaseException as error:
             QMessageBox.warning(self, 'I/O Error:', str(error))
@@ -784,7 +786,7 @@ class ExampleQWidget(QWidget):
         filename = tmp.joinpath(stem5).with_suffix('.json')
         print('Read', filename)
         try:
-            with open(filename, 'r') as file:
+            with filename.open('r', encoding='utf-8') as file:
                 self.segments = json.load(file)
         except BaseException as error:
             QMessageBox.warning(self, 'I/O Error:', str(error))
