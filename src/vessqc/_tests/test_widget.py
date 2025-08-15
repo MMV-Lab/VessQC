@@ -43,8 +43,10 @@ def normalize_for_json(data):
     else:
         return data
 
-# A constant with the _data path
+# Constants with the _data path and the TEMP directory
 DATA = Path(__file__).parent / '_data'
+tmp  = tempfile.gettempdir()
+TEMP = Path(tmp)
 
 # make_napari_viewer is a pytest fixture that returns a napari viewer object
 # you don't need to import it, as long as napari is installed in your
@@ -349,10 +351,7 @@ def test_save_intermediate_data(widget, segPred, uncertainty, labels, segments):
     widget.stem3        = 'Box32x32_uncertainty'
     widget.save_intermediate_data()
 
-    tmp = tempfile.gettempdir()
-    tmp = Path(tmp)
-
-    filename = tmp.joinpath('Box32x32_segPred.npy')
+    filename = TEMP.joinpath('Box32x32_segPred.npy')
     loaded_data = np.load(filename)
     assert np.array_equal(loaded_data, segPred)
 
@@ -374,23 +373,20 @@ def test_save_intermediate_data(widget, segPred, uncertainty, labels, segments):
 def test_save_intermediate_data_with_exc(widget, segments):
     # (27.09.2024)
     widget.segPred     = np.ones((3, 3, 3), dtype=int)
-    widget.uncertainty = np.ones((3, 3, 3), dtype=float)
+    widget.uncertainty = np.random.rand(3, 3, 3)
     widget.labels      = np.ones((3, 3, 3), dtype=int)
     widget.segments    = segments
     widget.stem1       = 'test_save_IM'
     widget.stem2       = 'test_save_segPred'
     widget.stem3       = 'test_save_uncertainty'
-    
+
     # Simulate an exception when opening the file
     with mock.patch("pathlib.Path.open", side_effect=OSError("File error")), \
          mock.patch("qtpy.QtWidgets.QMessageBox.warning") as mock_warning:
         widget.save_intermediate_data()
         assert mock_warning.call_count == 4
 
-    tmp = tempfile.gettempdir()
-    tmp = Path(tmp)
-
-    filename = tmp.joinpath('test_save_segPred.npy')
+    filename = TEMP.joinpath('test_save_segPred.npy')
     assert not filename.exists()
 
     filename = filename.with_name('test_save_uncertainty.npy')
@@ -407,10 +403,7 @@ def test_save_intermediate_data_with_exc(widget, segments):
 def test_load_intermediate_data(widget, image, segPred, uncertainty, labels,
     segments):
     # (01.10.2024)
-    tmp = tempfile.gettempdir()
-    tmp = Path(tmp)
-
-    filename = tmp.joinpath('Box32x32_segPred.npy')
+    filename = TEMP.joinpath('Box32x32_segPred.npy')
     with filename.open('wb') as file:
         np.save(file, segPred)
 
@@ -448,68 +441,58 @@ def test_load_intermediate_data(widget, image, segPred, uncertainty, labels,
 
 
 @pytest.mark.load_intermediate_with_exc
-def test_reload_with_exc(widget, segments):
+def test_load_intermediate_data_with_exc(widget):
     # (01.10.2024)
+    widget.image       = np.random.rand(3, 3, 3)
     widget.segPred     = np.ones((3, 3, 3), dtype=int)
-    widget.uncertainty = np.ones((3, 3, 3), dtype=float)
-    widget.segments    = segments
+    widget.uncertainty = np.random.rand(3, 3, 3)
+    widget.segments    = []
     widget.stem1       = 'test_save_IM'
     widget.stem2       = 'test_save_segPred'
     widget.stem3       = 'test_save_uncertainty'
 
-    real_open = builtins.open       # Save original
-
-    # Suggestion from ChatGPT
-    def open_side_effect(file, *args, **kwargs):
-        if '_Segmentation.npy' in str(file) or '_Uncertainty.npy' in str(file):
-            raise OSError("File error")
-        return real_open(file, *args, **kwargs)
-
-    # simulate an exception when opening the file
-    with mock.patch("builtins.open", side_effect=open_side_effect), \
+    # Simulate an exception when opening the file
+    with mock.patch("pathlib.Path.open", side_effect=OSError("File error")), \
          mock.patch("qtpy.QtWidgets.QMessageBox.warning") as mock_warning:
-        widget.reload()
+        widget.load_intermediate_data()
         assert mock_warning.call_count == 1
 
     assert len(widget.viewer.layers) == 0
     assert widget.segments == []
 
 
-@pytest.mark.final_segPred
-def test_final_segPred(tmp_path, widget, segPred, uncertainty):
+@pytest.mark.save_final
+def test_save_final_result(widget, image, segPred, uncertainty, labels,
+    segments):
     # (01.10.2024)
-    widget.segPred = segPred
-    widget.uncertainty = uncertainty
-    widget.parent = tmp_path
-    widget.stem1 = 'Box32x32_IM'
+    widget.image            = image
+    widget.segPred          = segPred
+    widget.uncertainty      = uncertainty
+    widget.labels           = labels
+    widget.segments         = segments
+    widget.parent           = TEMP
+    widget.stem1            = 'Box32x32_IM'
+    widget.stem2            = 'Box32x32_segPred'
     widget.save_uncertainty = True
-    filename1 = str(tmp_path / 'Box32x32_segNew.tif')
-    filename2 = str(tmp_path / 'Box32x32_uncNew.tif')
 
     # call the function final_segPred()
+    filename = TEMP.joinpath('Box32x32_segPredNew.tif')
+    filename1 = str(filename)
     with mock.patch("qtpy.QtWidgets.QFileDialog.getSaveFileName",
         return_value=(filename1, None)) as mock_save:
-        widget.final_segPred()
+        widget.save_final_result()
         mock_save.assert_called_once()
 
-    try:
-        seg_saved_data = imread(filename1)
-    except BaseException as error:
-        print('Error:', error)
-        assert False
+    loaded_data = imread(filename)
+    assert np.array_equal(loaded_data, segPred)
 
-    try:
-        unc_saved_data = imread(filename2)
-    except BaseException as error:
-        print('Error:', error)
-        assert False
-
-    np.testing.assert_array_equal(seg_saved_data, segPred)
-    np.testing.assert_array_equal(unc_saved_data, uncertainty)
+    filename = filename.with_name('Box32x32_uncertaintyNew.tif')
+    loaded_data = imread(filename)
+    assert np.array_equal(loaded_data, uncertainty)
 
 
-@pytest.mark.final_segPred_write_error
-def test_final_segPred_write_error(tmp_path, widget):
+@pytest.mark.save_final_with_exc
+def test_save_final_result_with_exc(tmp_path, widget):
     # (13.06.2025)
     widget.segPred = np.ones((3, 3, 3), dtype=int)
     widget.uncertainty  = np.ones((3, 3, 3))
@@ -532,8 +515,8 @@ def test_final_segPred_write_error(tmp_path, widget):
         assert not Path(filename1).exists()
 
 
-@pytest.mark.final_uncertainty_write_error
-def test_final_uncertainty_write_error(tmp_path, widget):
+@pytest.mark.save_uncertainty_with_exc
+def test_save_uncertainty_with_exc(tmp_path, widget):
     # (13.06.2025)
     widget.segPred = np.ones((3, 3, 3), dtype=int)
     widget.uncertainty  = np.ones((3, 3, 3))

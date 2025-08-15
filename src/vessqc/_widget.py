@@ -824,9 +824,8 @@ class ExampleQWidget(QWidget):
         stem4 = self.stem1[:-3] + '_segPredNew'
         filename = self.parent.joinpath(stem4).with_suffix('.tif')
         default_filename = str(filename)
-        filename, _ = QFileDialog.getSaveFileName(self,
-            'Save _segPredNew file', default_filename,
-            'TIFF files (*.tif *.tiff)')
+        filename, _ = QFileDialog.getSaveFileName(self, 'Save _segPredNew file',
+             default_filename, 'TIFF files (*.tif *.tiff)')
         if filename == '':                      # Cancel button has been pressed
             QMessageBox.information(self, 'Cancel button',
                 'The cancel button has been pressed.')
