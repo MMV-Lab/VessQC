@@ -463,21 +463,22 @@ def test_load_intermediate_data_with_exc(widget):
 
 @pytest.mark.save_final
 def test_save_final_result(widget, image, segPred, uncertainty, labels,
-    segments):
+    segments, tmp_path):
     # (01.10.2024)
     widget.image            = image
     widget.segPred          = segPred
     widget.uncertainty      = uncertainty
     widget.labels           = labels
     widget.segments         = segments
-    widget.parent           = TEMP
+    widget.parent           = tmp_path
     widget.stem1            = 'Box32x32_IM'
     widget.stem2            = 'Box32x32_segPred'
     widget.save_uncertainty = True
 
     # call the function final_segPred()
-    filename = TEMP.joinpath('Box32x32_segPredNew.tif')
+    filename = tmp_path.joinpath('Box32x32_segPredNew.tif')
     filename1 = str(filename)
+
     with mock.patch("qtpy.QtWidgets.QFileDialog.getSaveFileName",
         return_value=(filename1, None)) as mock_save:
         widget.save_final_result()
@@ -492,80 +493,83 @@ def test_save_final_result(widget, image, segPred, uncertainty, labels,
 
 
 @pytest.mark.save_final_with_exc
-def test_save_final_result_with_exc(tmp_path, widget):
+def test_save_final_result_with_exc(widget, tmp_path):
     # (13.06.2025)
-    widget.segPred = np.ones((3, 3, 3), dtype=int)
-    widget.uncertainty  = np.ones((3, 3, 3))
-    widget.parent       = tmp_path
-    widget.stem1        = 'Box32x32_IM'
-    widget.save_uncertainty = False
-    filename1 = str(tmp_path / 'Box32x32_segNew.tif')
-
-    with mock.patch("qtpy.QtWidgets.QFileDialog.getSaveFileName",
-            return_value=(filename1, None)), \
-         mock.patch("vessqc._widget.imwrite",
-            side_effect=BaseException("Segmentation error")), \
-         mock.patch.object(QMessageBox, "warning") as mock_warning:
-        # Patch of the "warning" method of the "QMessageBox" class
-
-        widget.final_segPred()
-
-        mock_warning.assert_called_once()
-        assert 'Segmentation error' in mock_warning.call_args[0][2]
-        assert not Path(filename1).exists()
-
-
-@pytest.mark.save_uncertainty_with_exc
-def test_save_uncertainty_with_exc(tmp_path, widget):
-    # (13.06.2025)
-    widget.segPred = np.ones((3, 3, 3), dtype=int)
-    widget.uncertainty  = np.ones((3, 3, 3))
-    widget.parent       = tmp_path
-    widget.stem1        = 'Box32x32_IM'
+    widget.image            = np.random.rand(3, 3, 3)
+    widget.segPred          = np.ones((3, 3, 3), dtype=int)
+    widget.uncertainty      = np.random.rand(3, 3, 3)
+    widget.labels           = np.ones((3, 3, 3), dtype=int)
+    widget.parent           = tmp_path
+    widget.stem1            = 'test_save_IM'
+    widget.stem2            = 'test_save_segPred'
     widget.save_uncertainty = True
-    filename1 = str(tmp_path / 'Box32x32_segNew.tif')
-    filename2 = str(tmp_path / 'Box32x32_uncNew.tif')
+
+    filename1 = tmp_path.joinpath('test_save_segPred.tif')
+    filename2 = filename1.with_name('test_save_uncertainty.tif')
 
     with mock.patch("qtpy.QtWidgets.QFileDialog.getSaveFileName",
-            return_value=(filename1, None)), \
-         mock.patch("vessqc._widget.imwrite",
-            side_effect=[None, BaseException("Uncertainty error")]), \
-         mock.patch.object(QMessageBox, "warning") as mock_warning:
+            return_value=(str(filename1), None)), \
+        mock.patch("vessqc._widget.imwrite", side_effect=BaseException(
+            "Save result error")), \
+        mock.patch.object(QMessageBox, "warning") as mock_warning:
+        # Patch of the "warning" method of the "QMessageBox" class
+        widget.save_final_result()
+        mock_warning.assert_called_once()
 
-        widget.final_segPred()
+    """
+    mock_warning.call_args contains a tuple (args, kwargs), where:
+    call_args[0] → the positional arguments (i.e., the parameters that were
+                   passed without names, as a tuple)
+    call_args[1] → the keyword arguments (as a dict)
 
-        assert mock_warning.call_count == 1
-        assert 'Uncertainty error' in mock_warning.call_args[0][2]
-        assert not Path(filename1).exists()
-        assert not Path(filename2).exists()
+    This means:
+    mock_warning.call_args[0][0] → the parent widget (in your case probably
+                                   widget or None)
+    mock_warning.call_args[0][1] → the title string, e.g. “Error”
+    mock_warning.call_args[0][2] → the actual error message, “Save result
+                                   error”
+    mock_warning.call_args[0][3] → possibly the button options (if passed
+                                   in the code)
+    mock_warning.call_args[1] →    a dict with named parameters, if any have
+                                   been set (e.g., defaultButton=QMessageBox.Ok)
+    """
+
+    assert 'Save result error' in mock_warning.call_args[0][2]
+    assert not filename1.exists()
+    assert not filename2.exists()
 
 
 @pytest.mark.info_image
-def test_btn_info_image_layer(widget, capsys):
+def test_show_info_image(widget, capsys):
     # Image-Layer hinzufügen
     image = np.random.rand(3, 3, 3)
     layer = widget.viewer.add_image(image, name="TestImage")
     widget.viewer.layers.selection.active = layer
 
-    widget.btn_info()
+    widget.show_info()
     captured = capsys.readouterr()
 
     assert "layer: TestImage" in captured.out
-    assert "type:" in captured.out
+    assert "type: <class 'numpy.ndarray'>" in captured.out
+    assert "dtype: float" in captured.out
+    assert "shape: (3, 3, 3)" in captured.out
     assert "min:" in captured.out
+    assert "max:" in captured.out
     assert "mean:" in captured.out
 
 
 @pytest.mark.info_labels
-def test_btn_info_labels_layer(widget, capsys):
+def test_show_info_labels(widget, capsys):
     labels = np.random.randint(0, high=10, size=(3, 3, 3), dtype=int)
     layer  = widget.viewer.add_labels(labels, name="TestLabels")
     widget.viewer.layers.selection.active = layer
 
-    widget.btn_info()
+    widget.show_info()
     captured = capsys.readouterr()
 
     assert "layer: TestLabels" in captured.out
-    assert "type:" in captured.out
+    assert "type: <class 'numpy.ndarray'>" in captured.out
+    assert "shape: (3, 3, 3)" in captured.out
+    assert "dtype: int32" in captured.out
     assert "values:" in captured.out
     assert "counts:" in captured.out

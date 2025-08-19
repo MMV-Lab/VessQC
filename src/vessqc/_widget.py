@@ -152,7 +152,7 @@ class ExampleQWidget(QWidget):
         hard drive
     cbx_save_uncertainty(state: Qt.Checked)
         Toggle the bool variable save_uncertainty
-    btn_info()
+    show_info()
         Show information about the current layer
     """
 
@@ -196,7 +196,7 @@ class ExampleQWidget(QWidget):
 
         # Test output
         btnInfo = QPushButton('Info')
-        btnInfo.clicked.connect(self.btn_info)
+        btnInfo.clicked.connect(self.show_info)
         self.layout().addWidget(btnInfo)
 
         label2 = QLabel('_______________')
@@ -862,7 +862,7 @@ class ExampleQWidget(QWidget):
         else:
             self.save_uncertainty = False
 
-    def btn_info(self):
+    def show_info(self):
         """ Show information about the current layer """
 
         # (25.07.2024)
