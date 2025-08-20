@@ -371,9 +371,9 @@ def test_save_intermediate_data(widget, segPred, uncertainty, labels, segments):
 @pytest.mark.save_intermediate_with_exc
 def test_save_intermediate_data_with_exc(widget, segments):
     # (27.09.2024)
-    widget.segPred     = np.ones((3, 3, 3), dtype=int)
+    widget.segPred     = np.ones((3, 3, 3), dtype=np.int32)
     widget.uncertainty = np.random.rand(3, 3, 3)
-    widget.labels      = np.ones((3, 3, 3), dtype=int)
+    widget.labels      = np.ones((3, 3, 3), dtype=np.int32)
     widget.segments    = segments
     widget.stem1       = 'test_save_IM'
     widget.stem2       = 'test_save_segPred'
@@ -443,7 +443,7 @@ def test_load_intermediate_data(widget, image, segPred, uncertainty, labels,
 def test_load_intermediate_data_with_exc(widget):
     # (01.10.2024)
     widget.image       = np.random.rand(3, 3, 3)
-    widget.segPred     = np.ones((3, 3, 3), dtype=int)
+    widget.segPred     = np.ones((3, 3, 3), dtype=np.int32)
     widget.uncertainty = np.random.rand(3, 3, 3)
     widget.segments    = []
     widget.stem1       = 'test_save_IM'
@@ -495,9 +495,9 @@ def test_save_final_result(widget, image, segPred, uncertainty, labels,
 def test_save_final_result_with_exc(widget, tmp_path):
     # (13.06.2025)
     widget.image            = np.random.rand(3, 3, 3)
-    widget.segPred          = np.ones((3, 3, 3), dtype=int)
+    widget.segPred          = np.ones((3, 3, 3), dtype=np.int32)
     widget.uncertainty      = np.random.rand(3, 3, 3)
-    widget.labels           = np.ones((3, 3, 3), dtype=int)
+    widget.labels           = np.ones((3, 3, 3), dtype=np.int32)
     widget.parent           = tmp_path
     widget.stem1            = 'test_save_IM'
     widget.stem2            = 'test_save_segPred'
@@ -559,7 +559,7 @@ def test_show_info_image(widget, capsys):
 
 @pytest.mark.info_labels
 def test_show_info_labels(widget, capsys):
-    labels = np.random.randint(0, high=10, size=(3, 3, 3), dtype=int)
+    labels = np.random.randint(0, high=10, size=(3, 3, 3), dtype=np.int32)
     layer  = widget.viewer.add_labels(labels, name="TestLabels")
     widget.viewer.layers.selection.active = layer
 
