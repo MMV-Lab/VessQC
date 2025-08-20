@@ -2,7 +2,6 @@
 # (12.09.2024)
 
 import builtins
-# from deepdiff import DeepDiff
 import json
 import napari
 import numpy as np
