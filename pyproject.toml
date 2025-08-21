@@ -3,7 +3,7 @@ requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "VessQC"
+name = "vessqc"
 version = "0.8.0"
 description = "Quality control plugin for vessel segmentation in napari"
 authors = [
@@ -62,7 +62,7 @@ where = ["src"]
 "*" = ["*.yaml"]
 
 [project.entry-points."napari.manifest"]
-VessQC = "vessqc:napari.yaml"
+vessqc = "vessqc:napari.yaml"
 
 [tool.bumpversion]
 current_version = "0.8.0"

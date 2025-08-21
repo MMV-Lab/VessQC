@@ -1,14 +1,13 @@
-name: VessQC
+name: vessqc
 display_name: VessQC
-# use 'hidden' to remove plugin from napari hub search results
 visibility: public
-# see https://napari.org/stable/plugins/manifest.html for valid categories
 categories: ["Segmentation", "Image Processing"]
+
 contributions:
   commands:
-    - id: VessQC.make_qwidget
+    - id: vessqc.make_qwidget
       python_name: vessqc:ExampleQWidget
       title: Make example QWidget
   widgets:
-    - command: VessQC.make_qwidget
+    - command: vessqc.make_qwidget
       display_name: Vessel Quality Check
