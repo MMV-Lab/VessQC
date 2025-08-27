@@ -325,14 +325,14 @@ def test_done(widget, image, segPred, segPredNew, uncertainty, uncertaintyNew,
     assert segments[3]['done'] == True
 
 
-@pytest.mark.restore
-def test_restore(widget, segments):
+@pytest.mark.re_enable
+def test_re_enable(widget, segments):
     # (13.08.2025)
     widget.segments = segments
     segment = segments[3]
 
     with mock.patch("qtpy.QtWidgets.QWidget.show") as mock_show:
-        widget.restore(segment)
+        widget.re_enable(segment)
         mock_show.assert_called_once()
 
     assert segments[3]['done'] == False
@@ -383,7 +383,7 @@ def test_save_intermediate_data_with_exc(widget, segments):
     with mock.patch("pathlib.Path.open", side_effect=OSError("File error")), \
          mock.patch("qtpy.QtWidgets.QMessageBox.warning") as mock_warning:
         widget.save_intermediate_data()
-        assert mock_warning.call_count == 4
+        assert mock_warning.call_count == 1
 
     filename = TEMP.joinpath('test_save_segPred.npy')
     assert not filename.exists()

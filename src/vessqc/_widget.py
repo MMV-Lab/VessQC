@@ -137,8 +137,8 @@ class ExampleQWidget(QWidget):
     done()
         Transfer data from the area to the segPred and uncertainty layer
         and close the layer for the area
-    restore()
-        Restore the data of a specific area in the pop-up window
+    re_enable()
+        Re-enable the data of a specific segment in the pop-up window
     compare_and_transfer(name: str)
         Compare old and new data of an area and transfer the changes to the
         segPred and uncertainty data
@@ -499,7 +499,7 @@ class ExampleQWidget(QWidget):
         grid_layout.addWidget(QLabel('Segment'), idx, 0)
         grid_layout.addWidget(QLabel('Uncertainty'), idx, 1)
         grid_layout.addWidget(QLabel('Counts'), idx, 2)
-        grid_layout.addWidget(QLabel('restore'), idx, 3)
+        grid_layout.addWidget(QLabel('Re-enable'), idx, 3)
 
         for idx, segment in enumerate(self.segments, start=idx+1):
             # show only the treated areas
@@ -545,8 +545,8 @@ class ExampleQWidget(QWidget):
         grid_layout.addWidget(label2, idx, 2)
 
         if segment['done']:
-            button3 = QPushButton('restore')
-            button3.clicked.connect(lambda: self.restore(segment))
+            button3 = QPushButton('re-enable')
+            button3.clicked.connect(lambda: self.re_enable(segment))
         else:
             button3 = QPushButton('done')
             button3.clicked.connect(lambda: self.done(segment))
@@ -631,8 +631,8 @@ class ExampleQWidget(QWidget):
         # open a new pop-up window
         self.show_popup_window()
 
-    def restore(self, segment: dict):
-        """ Restore the data of a specific area in the pop-up window """
+    def re_enable(self, segment: dict):
+        """ Re-enable the data of a specific area in the pop-up window """
 
         # (19.07.2024)
         segment['done'] = False
@@ -707,6 +707,7 @@ class ExampleQWidget(QWidget):
                 np.save(file, self.segPred)
         except BaseException as error:
             QMessageBox.warning(self, 'I/O Error:', str(error))
+            return
 
         # 2nd: save the uncertainty data
         filename = tmp.joinpath(self.stem3).with_suffix('.npy')
@@ -716,6 +717,7 @@ class ExampleQWidget(QWidget):
                 np.save(file, self.uncertainty)
         except BaseException as error:
             QMessageBox.warning(self, 'I/O Error:', str(error))
+            return
 
         # 3rd: save the labels
         stem4 = self.stem1[:-3] + '_labels'
@@ -726,6 +728,7 @@ class ExampleQWidget(QWidget):
                 np.save(file, self.labels)
         except BaseException as error:
             QMessageBox.warning(self, 'I/O Error:', str(error))
+            return
 
         # 4th: save the segments dictionary
         stem5 = self.stem1[:-3] + '_segments'
