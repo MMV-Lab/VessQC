@@ -6,8 +6,8 @@ categories: ["Segmentation", "Image Processing"]
 contributions:
   commands:
     - id: vessqc.make_qwidget
-      python_name: vessqc:ExampleQWidget
-      title: Make example QWidget
+      python_name: vessqc:VessQcWidget
+      title: Make vessqc QWidget
   widgets:
     - command: vessqc.make_qwidget
       display_name: Vessel Quality Check

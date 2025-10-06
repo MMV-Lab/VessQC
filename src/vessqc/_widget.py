@@ -1,5 +1,5 @@
 """
-Module for the definition of the class ExampleQWidget
+Module for the definition of the class VessQcWidget
 
 Imports
 -------
@@ -8,7 +8,7 @@ scipy.ndimage, SimpleITK, tifffile.imread, tifffile.imwrite
 
 Exports
 -------
-ExampleQWidget
+VessQcWidget
 """
 
 # Copyright © Peter Lampen, ISAS Dortmund, 2024
@@ -88,7 +88,7 @@ def jsonify(obj):
     return obj
 
 
-class ExampleQWidget(QWidget):
+class VessQcWidget(QWidget):
     """
     Main widget of a Napari plugin for checking the calculation of blood vessels
 

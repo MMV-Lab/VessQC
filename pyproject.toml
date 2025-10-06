@@ -7,7 +7,8 @@ name = "vessqc"
 version = "0.8.0"
 description = "Quality control plugin for vessel segmentation in napari"
 authors = [
-    {name = "Peter Lampen", email = "lampen@isas.de"}
+    {name = "Peter Lampen", email = "lampen@isas.de"},
+    {name = "Lennart Kowitz", email = "lennart.kowitz@isas.de"}
 ]
 readme = "README.md"
 requires-python = ">=3.9"
