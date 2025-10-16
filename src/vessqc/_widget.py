@@ -41,6 +41,7 @@ import tempfile
 from tifffile import imread, imwrite
 import time
 from typing import TYPE_CHECKING
+from .triple_view_widget import TripleViewWidget
 
 if TYPE_CHECKING:
     import napari
@@ -173,63 +174,64 @@ class ExampleQWidget(QWidget):
         self.save_uncertainty = False
 
         # Define the layout of the main widget
-        self.setLayout(QVBoxLayout())
+        layout = QVBoxLayout()
+        self.setLayout(layout)
 
         # Define some labels and buttons
         label1 = QLabel('Vessel quality check')
         font = label1.font()
         font.setPointSize(12)
         label1.setFont(font)
-        self.layout().addWidget(label1)
+        layout.addWidget(label1)
 
         btnLoadImage = QPushButton('Load image')
         btnLoadImage.clicked.connect(self.load_image)
-        self.layout().addWidget(btnLoadImage)
+        layout.addWidget(btnLoadImage)
 
         btnSegPred = QPushButton('Read segPred file')
         btnSegPred.clicked.connect(self.read_segPred)
-        self.layout().addWidget(btnSegPred)
+        layout.addWidget(btnSegPred)
 
         btnShowUncert = QPushButton('Show uncertainty data')
         btnShowUncert.clicked.connect(self.show_uncertainty)
-        self.layout().addWidget(btnShowUncert)
+        layout.addWidget(btnShowUncert)
 
         # Test output
         btnInfo = QPushButton('Info')
         btnInfo.clicked.connect(self.show_info)
-        self.layout().addWidget(btnInfo)
+        layout.addWidget(btnInfo)
 
         label2 = QLabel('_______________')
         label2.setAlignment(Qt.AlignHCenter)
-        self.layout().addWidget(label2)
+        layout.addWidget(label2)
 
         label3 = QLabel('Curation')
         label3.setFont(font)
-        self.layout().addWidget(label3)
+        layout.addWidget(label3)
 
         btnPopupWindow = QPushButton('Show list of segments')
         btnPopupWindow.clicked.connect(self.show_popup_window)
-        self.layout().addWidget(btnPopupWindow)
+        layout.addWidget(btnPopupWindow)
 
         btnSaveIntermediate = QPushButton('Save intermediate data')
         btnSaveIntermediate.clicked.connect(self.save_intermediate_data)
-        self.layout().addWidget(btnSaveIntermediate)
+        layout.addWidget(btnSaveIntermediate)
 
         btnLoadIntermediate = QPushButton('Load intermediate data')
         btnLoadIntermediate.clicked.connect(self.load_intermediate_data)
-        self.layout().addWidget(btnLoadIntermediate)
+        layout.addWidget(btnLoadIntermediate)
 
         label4 = QLabel('_______________')
         label4.setAlignment(Qt.AlignHCenter)
-        self.layout().addWidget(label4)
+        layout.addWidget(label4)
 
         btnSaveResult = QPushButton('Save final result')
         btnSaveResult.clicked.connect(self.save_final_result)
-        self.layout().addWidget(btnSaveResult)
+        layout.addWidget(btnSaveResult)
 
         cbxSaveUncertainty = QCheckBox('Save uncertainty')
         cbxSaveUncertainty.stateChanged.connect(self.checkbox_save_uncertainty)
-        self.layout().addWidget(cbxSaveUncertainty)
+        layout.addWidget(cbxSaveUncertainty)
 
     def load_image(self):
         """
