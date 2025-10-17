@@ -1,11 +1,6 @@
 """
 Module for the definition of the class ExampleQWidget
 
-Imports
--------
-napari, numpy, pathlib.Path, qtpy.QtCore.QSize, qtpy.QtCore.QT, qtpy.QtWidgets,
-scipy.ndimage, SimpleITK, tifffile.imread, tifffile.imwrite
-
 Exports
 -------
 ExampleQWidget
@@ -41,7 +36,7 @@ import tempfile
 from tifffile import imread, imwrite
 import time
 from typing import TYPE_CHECKING
-from .triple_view_widget import TripleViewWidget
+#from .triple_view_widget import TripleViewWidget
 
 if TYPE_CHECKING:
     import napari
@@ -117,59 +112,21 @@ class ExampleQWidget(QWidget):
         3D array with uncertainties
     popup_window : QWidget
         Pop up window with uncertainty values
-
-    Methods
-    -------
-    __init__(viewer: "napari.viewer.Viewer")
-        Class constructor
-    load_image()
-        Read the image file and save it in an image layer
-    read_segPred()
-        Read the segPred and uncertanty data and save it in a label and an
-        image layer
-    find_segments(uncertainty: np.ndarray)
-        Define areas that correspond to values of equal uncertainty
-    show_popup_window()
-        Define a pop-up window for the uncertainty list
-    new_entry(segment: dict, grid_layout: QGridLayout, i: int):
-        New entry for 'Area n' in the grid layout
-    show_area()
-        Show the data for a specific uncertanty in a new label layer
-    done()
-        Transfer data from the area to the segPred and uncertainty layer
-        and close the layer for the area
-    re_enable()
-        Re-enable the data of a specific segment in the pop-up window
-    compare_and_transfer(name: str)
-        Compare old and new data of an area and transfer the changes to the
-        segPred and uncertainty data
-    save_intermediate_data()
-        Save the segPred and uncertainty data to files on hard drive
-    load_intermediate_data()
-        Read the segPred and uncertainty data from files on hard drive
-    save_final_result()
-        Close all open area layers, close the pop-up window, save the
-        segPred and if applicable also the uncertainty data to files on
-        hard drive
-    cbx_save_uncertainty(state: Qt.Checked)
-        Toggle the bool variable save_uncertainty
-    show_info()
-        Show information about the current layer
     """
 
-    def __init__(self, viewer: "napari.viewer.Viewer"):
+    def __init__(self, napari_viewer: "napari.viewer.Viewer"):
         """
         Class constructor
 
         Parameter
         ---------
-        viewer : widget
-            napari.viewer
+        napari_viewer : widget
+            napari.viewer.Viewer
         """
 
         # (03.05.2024)
         super().__init__()
-        self.viewer = viewer
+        self.viewer = napari_viewer
         self.segments = []
         self.save_uncertainty = False
 
@@ -233,6 +190,9 @@ class ExampleQWidget(QWidget):
         cbxSaveUncertainty.stateChanged.connect(self.checkbox_save_uncertainty)
         layout.addWidget(cbxSaveUncertainty)
 
+        #self.triple_view = TripleViewWidget()
+        #layout.addWidget(self.triple_view)
+
     def load_image(self):
         """
         Read the image file and save it in an image layer
@@ -252,8 +212,8 @@ class ExampleQWidget(QWidget):
             return
 
         filename = Path(filename)
-        self.parent = filename.parent           # The data directory
-        self.stem1  = filename.stem             # Name of the input file
+        self.parent = filename.parent           # The image directory
+        self.stem1  = filename.stem             # Name of the image file
         suffix      = filename.suffix.lower()   # File extension
         # Truncate the extension .nii
         if suffix == '.gz' and self.stem1[-4:] == '.nii':
@@ -276,6 +236,7 @@ class ExampleQWidget(QWidget):
             return
 
         self.viewer.add_image(self.image, name=self.stem1)   # Show the image
+        #self.triple_view.load_image(self.image)
         self.segments.clear()
 
     def read_segPred(self):
