@@ -1,0 +1,21 @@
+{
+  "priorities": {
+    "test_dataset": 0.85,
+    "sample_dataset": 0.72
+  },
+  "datasets": [
+    {
+      "base_name": "test_dataset",
+      "raw_file": "test_IM.tif",
+      "segpred_file": "test_segPred.tif",
+      "uncertainty_file": "test_uncertainty.tif",
+      "priority": 0.85,
+      "has_temp": false,
+      "temp_segpred": null,
+      "temp_uncertainty": null,
+      "has_segmentation": true,
+      "segmentation_dir": ".vessqc_segmentations"
+    }
+  ],
+  "last_modified": 1696950000.0
+}
