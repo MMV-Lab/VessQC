@@ -108,6 +108,8 @@ class DatasetTriplet:
         self.segment_priorities: List[SegmentPriority] = []
         self.has_segmentation = False  # Whether segmentation has been calculated
         self.segmentation_dir: Optional[Path] = None  # Where segmentation is stored
+        self.max_uncertainty_excluding_noise: Optional[float] = None  # Highest uncertainty excluding Noise
+        self.voxel_count_at_max_uncertainty: Optional[int] = None  # Count of voxels at that uncertainty
         
     def __repr__(self):
         return f"DatasetTriplet('{self.base_name}', priority={self.priority})"
@@ -501,7 +503,7 @@ class DataManager:
             segments_skipped = 0
             
             for label in unique_labels:
-                # Skip small segments
+                # Skip small segments (these would become Noise)
                 if counts[label] < min_size:
                     segments_skipped += 1
                     continue
@@ -514,12 +516,6 @@ class DataManager:
                 if len(segment_uncertainty) > 0:
                     # Use maximum uncertainty in segment
                     max_uncert = float(np.max(segment_uncertainty))
-                    
-                    # Skip if this looks like a grouped small segments value (0.9999)
-                    if max_uncert >= 0.999:
-                        print(f"  Skipping label {label}: uncertainty {max_uncert:.4f} (likely small segments)")
-                        segments_skipped += 1
-                        continue
                     
                     max_uncertainty = max(max_uncertainty, max_uncert)
                     
@@ -536,6 +532,18 @@ class DataManager:
             
             print(f"  Processed {segments_processed} segments, skipped {segments_skipped} small segments")
             print(f"  Max uncertainty: {max_uncertainty:.4f}")
+            
+            # Calculate dataset-level metrics (excluding Noise)
+            if max_uncertainty > 0:
+                # Count voxels at this exact uncertainty value
+                tolerance = 1e-6
+                voxel_count = int(np.sum(np.abs(uncertainty - max_uncertainty) < tolerance))
+                triplet.max_uncertainty_excluding_noise = max_uncertainty
+                triplet.voxel_count_at_max_uncertainty = voxel_count
+                print(f"  Dataset metrics: uncertainty={max_uncertainty:.4f}, voxel_count={voxel_count}")
+            else:
+                triplet.max_uncertainty_excluding_noise = 0.0
+                triplet.voxel_count_at_max_uncertainty = 0
             
             # Sort segments by uncertainty (highest first)
             triplet.segment_priorities.sort(key=lambda x: x.uncertainty, reverse=True)
@@ -585,12 +593,17 @@ class DataManager:
             done_count = sum(1 for s in segments if s.get('done', False))
             print(f"DEBUG:   Segments status: {done_count} done, {len(segments) - done_count} undone")
             
+            # Find max label to identify Noise segment
+            max_label = max(s['label'] for s in segments) if segments else 0
+            print(f"DEBUG:   Max label (Noise): {max_label}")
+            
             # Create segment priorities from cached data (no need to load large files!)
             triplet.segment_priorities = []
             max_uncertainty = 0.0
             min_size = 200
             segments_processed = 0
             segments_skipped = 0
+            voxel_count_at_max = 0
             
             for segment in segments:
                 label = segment['label']
@@ -600,8 +613,8 @@ class DataManager:
                 # Use custom_name if it exists, otherwise synthesize default
                 if 'custom_name' in segment:
                     segment_name = segment['custom_name']
-                elif uncertainty_value >= 0.999:
-                    segment_name = 'Small_Segments'
+                elif label == max_label:
+                    segment_name = 'Noise'
                 else:
                     segment_name = f'Segment_{label}'
                 
@@ -611,8 +624,9 @@ class DataManager:
                     segments_skipped += 1
                     continue
                 
-                # Skip small segments collection
-                if uncertainty_value >= 0.999:
+                # Skip Noise segment (identified by max label)
+                if label == max_label:
+                    print(f"DEBUG:   Skipping {segment_name}: Noise segment")
                     segments_skipped += 1
                     continue
                 
@@ -636,6 +650,23 @@ class DataManager:
                     segments_processed += 1
                 else:
                     segments_skipped += 1
+            
+            # Calculate dataset-level metrics (excluding Noise and done segments)
+            if max_uncertainty > 0:
+                # Count voxels: sum counts from all non-done, non-Noise segments at max uncertainty
+                tolerance = 1e-6
+                for segment in segments:
+                    if (not segment.get('done', False) and 
+                        segment['label'] != max_label and
+                        abs(segment.get('uncertainty', 0.0) - max_uncertainty) < tolerance):
+                        voxel_count_at_max += segment.get('counts', 0)
+                
+                triplet.max_uncertainty_excluding_noise = max_uncertainty
+                triplet.voxel_count_at_max_uncertainty = voxel_count_at_max
+                print(f"DEBUG:   Dataset metrics: uncertainty={max_uncertainty:.4f}, voxel_count={voxel_count_at_max}")
+            else:
+                triplet.max_uncertainty_excluding_noise = 0.0
+                triplet.voxel_count_at_max_uncertainty = 0
             
             # Sort segments by uncertainty (highest first)
             triplet.segment_priorities.sort(key=lambda x: x.uncertainty, reverse=True)
@@ -700,9 +731,11 @@ class DataManager:
                 # Always load/calculate to get segment priorities
                 triplet.priority = self._calculate_priority_for_dataset(triplet)
             
-            # Sort by priority (higher uncertainty = higher priority, so reverse sort)
-            self.datasets.sort(key=lambda x: x.priority if x.priority is not None 
-                             else float('-inf'), reverse=True)
+            # Sort by dataset-level metrics: uncertainty (descending), then voxel count (descending)
+            self.datasets.sort(key=lambda x: (
+                x.max_uncertainty_excluding_noise if x.max_uncertainty_excluding_noise is not None else -1,
+                x.voxel_count_at_max_uncertainty if x.voxel_count_at_max_uncertainty is not None else 0
+            ), reverse=True)
             
             # Create flat list of all segment priorities across all datasets
             print(f"\nDEBUG: Building flat segment list...")

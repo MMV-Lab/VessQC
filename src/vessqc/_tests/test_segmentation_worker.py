@@ -138,7 +138,9 @@ def test_json_serialization_no_numpy_arrays(temp_output_dir, sample_uncertainty,
             assert isinstance(segment['uncertainty'], float)
             assert isinstance(segment['counts'], int)
             assert isinstance(segment['done'], bool)
-            assert isinstance(segment['name'], str)
+            # 'name' field is no longer stored (we store 'custom_name' only if it differs)
+            if 'custom_name' in segment:
+                assert isinstance(segment['custom_name'], str)
 
 
 @pytest.mark.worker

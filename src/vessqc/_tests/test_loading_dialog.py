@@ -82,39 +82,42 @@ def test_select_directory(loading_dialog, temp_data_dir, qtbot):
 @pytest.mark.dialog
 def test_dataset_list_display_empty(loading_dialog):
     """Test dataset list display when no datasets"""
-    loading_dialog.data_manager.all_segment_priorities = []
+    loading_dialog.data_manager.datasets = []
     loading_dialog._update_dataset_list()
     
     assert loading_dialog.dataset_list.count() >= 1
 
 
 @pytest.mark.dialog
-def test_dataset_list_display_with_segments(loading_dialog, temp_data_dir):
-    """Test dataset list display with segments"""
-    # Create mock triplet and priorities
+def test_dataset_list_display_with_datasets(loading_dialog, temp_data_dir):
+    """Test dataset list display with datasets"""
+    # Create mock triplet with metrics
     triplet = DatasetTriplet(
         'test',
         temp_data_dir / 'test_IM.tif',
         temp_data_dir / 'test_segPred.tif',
         temp_data_dir / 'test_uncertainty.tif'
     )
+    triplet.has_segmentation = True
+    triplet.max_uncertainty_excluding_noise = 0.9
+    triplet.voxel_count_at_max_uncertainty = 500
     
-    seg_priorities = [
-        SegmentPriority('test', 1, 'Segment_1', 0.9, triplet),
-        SegmentPriority('test', 2, 'Segment_2', 0.7, triplet),
-        SegmentPriority('test', 3, 'Segment_3', 0.5, triplet),
-    ]
-    
-    loading_dialog.data_manager.all_segment_priorities = seg_priorities
+    loading_dialog.data_manager.datasets = [triplet]
     loading_dialog._update_dataset_list()
     
-    # Should display segments
-    assert loading_dialog.dataset_list.count() == 3
+    # Should display 1 dataset
+    assert loading_dialog.dataset_list.count() == 1
+    
+    # Check display text format
+    item = loading_dialog.dataset_list.item(0)
+    assert 'test' in item.text()
+    assert '0.900' in item.text()
+    assert '500' in item.text()
 
 
 @pytest.mark.dialog
-def test_temp_file_priority_logic(loading_dialog, temp_data_dir):
-    """Test that temp files are displayed in priority list"""
+def test_temp_file_display(loading_dialog, temp_data_dir):
+    """Test that temp files are displayed with [TEMP] marker"""
     # Create two triplets
     triplet1 = DatasetTriplet(
         'test1',
@@ -123,6 +126,9 @@ def test_temp_file_priority_logic(loading_dialog, temp_data_dir):
         temp_data_dir / 'test1_uncertainty.tif'
     )
     triplet1.has_temp = False
+    triplet1.has_segmentation = True
+    triplet1.max_uncertainty_excluding_noise = 0.9
+    triplet1.voxel_count_at_max_uncertainty = 500
     
     triplet2 = DatasetTriplet(
         'test2',
@@ -131,41 +137,48 @@ def test_temp_file_priority_logic(loading_dialog, temp_data_dir):
         temp_data_dir / 'test2_uncertainty.tif'
     )
     triplet2.has_temp = True
+    triplet2.has_segmentation = True
+    triplet2.max_uncertainty_excluding_noise = 0.5
+    triplet2.voxel_count_at_max_uncertainty = 200
     
-    # Create segment priorities where test1 is top priority
-    seg_priorities = [
-        SegmentPriority('test1', 1, 'Segment_1', 0.9, triplet1),
-        SegmentPriority('test2', 1, 'Segment_1', 0.5, triplet2),
-    ]
-    
-    loading_dialog.data_manager.all_segment_priorities = seg_priorities
+    loading_dialog.data_manager.datasets = [triplet1, triplet2]
     loading_dialog._update_dataset_list()
     
-    # Should display both: test1 in top 10, test2 as temp file
+    # Should display both datasets
     assert loading_dialog.dataset_list.count() == 2
+    
+    # Check for [TEMP] marker in test2
+    item1 = loading_dialog.dataset_list.item(0)
+    item2 = loading_dialog.dataset_list.item(1)
+    
+    # One should have [TEMP], one should not
+    texts = [item1.text(), item2.text()]
+    assert any('[TEMP]' in text for text in texts)
+    assert any('[TEMP]' not in text for text in texts)
 
 
 @pytest.mark.dialog
-def test_top_10_display(loading_dialog, temp_data_dir):
-    """Test that only top 10 segments are displayed (plus temp files)"""
-    triplet = DatasetTriplet(
-        'test',
-        temp_data_dir / 'test_IM.tif',
-        temp_data_dir / 'test_segPred.tif',
-        temp_data_dir / 'test_uncertainty.tif'
-    )
+def test_all_datasets_displayed(loading_dialog, temp_data_dir):
+    """Test that ALL datasets are displayed (not limited to top 10)"""
+    # Create 15 datasets
+    datasets = []
+    for i in range(1, 16):
+        triplet = DatasetTriplet(
+            f'test{i}',
+            temp_data_dir / f'test{i}_IM.tif',
+            temp_data_dir / f'test{i}_segPred.tif',
+            temp_data_dir / f'test{i}_uncertainty.tif'
+        )
+        triplet.has_segmentation = True
+        triplet.max_uncertainty_excluding_noise = 1.0 - i * 0.05
+        triplet.voxel_count_at_max_uncertainty = 100 * i
+        datasets.append(triplet)
     
-    # Create 15 segments
-    seg_priorities = [
-        SegmentPriority('test', i, f'Segment_{i}', 1.0 - i*0.05, triplet)
-        for i in range(1, 16)
-    ]
-    
-    loading_dialog.data_manager.all_segment_priorities = seg_priorities
+    loading_dialog.data_manager.datasets = datasets
     loading_dialog._update_dataset_list()
     
-    # Should display max 10
-    assert loading_dialog.dataset_list.count() == 10
+    # Should display all 15 datasets
+    assert loading_dialog.dataset_list.count() == 15
 
 
 @pytest.mark.dialog
@@ -177,9 +190,11 @@ def test_dataset_selection(loading_dialog, temp_data_dir):
         temp_data_dir / 'test_segPred.tif',
         temp_data_dir / 'test_uncertainty.tif'
     )
+    triplet.has_segmentation = True
+    triplet.max_uncertainty_excluding_noise = 0.9
+    triplet.voxel_count_at_max_uncertainty = 500
     
-    seg_priority = SegmentPriority('test', 1, 'Segment_1', 0.9, triplet)
-    loading_dialog.data_manager.all_segment_priorities = [seg_priority]
+    loading_dialog.data_manager.datasets = [triplet]
     loading_dialog._update_dataset_list()
     
     # Select first item

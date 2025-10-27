@@ -183,14 +183,14 @@ def test_find_segments(widget, uncertainty, labels, segments):
             json.dump(actual_segments, file, indent=2)
         pytest.skip('Reference data has been regenerated.')
 
-    # With min_size=200, all test segments are too small and grouped into Small_Segments
+    # With min_size=200, all test segments are too small and grouped into Noise
     # So we just verify segmentation ran and produced a result
     assert len(widget.segments) >= 1
     assert 'Segmentation' in viewer.layers
     
-    # Verify Small_Segments collection exists
-    has_small_segments = any(s['name'] == 'Small_Segments' for s in widget.segments)
-    assert has_small_segments
+    # Verify Noise collection exists
+    has_noise = any(s['name'] == 'Noise' for s in widget.segments)
+    assert has_noise
 
 
 @pytest.mark.popup_window
@@ -375,12 +375,16 @@ def test_threshold_debouncing(widget, qtbot):
     """Test that threshold changes are debounced"""
     widget.labels = np.ones((10, 10, 10), dtype=np.int32)
     widget.segments = [{'name': 'Segment_1', 'label': 1, 'uncertainty': 0.5, 'counts': 1000, 'coords': None, 'done': False}]
+    widget._small_segments_label = None  # No noise segment in this test
     widget.original_labels = None
     
-    # Change threshold multiple times quickly
-    widget.threshold_spinbox.setValue(60)
-    widget.threshold_spinbox.setValue(70)
-    widget.threshold_spinbox.setValue(80)
+    # Add Segmentation layer to viewer so threshold filter doesn't fail
+    widget.viewer.add_labels(widget.labels, name='Segmentation')
+    
+    # Change threshold multiple times quickly (values must be >= 200, the minimum)
+    widget.threshold_spinbox.setValue(250)
+    widget.threshold_spinbox.setValue(300)
+    widget.threshold_spinbox.setValue(350)
     
     # Timer should be active but not fired yet
     assert widget.threshold_timer.isActive()

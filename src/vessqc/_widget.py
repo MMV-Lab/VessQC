@@ -3,8 +3,9 @@ Module for the definition of the class VessQcWidget
 
 Imports
 -------
-napari, numpy, pathlib.Path, qtpy.QtCore.QSize, qtpy.QtCore.QT, qtpy.QtWidgets,
-scipy.ndimage, SimpleITK, tifffile.imread, tifffile.imwrite
+napari, napari.utils.colormaps, numpy, pathlib.Path, qtpy.QtCore.QSize, 
+qtpy.QtCore.QT, qtpy.QtWidgets, scipy.ndimage, SimpleITK, tifffile.imread, 
+tifffile.imwrite
 
 Exports
 -------
@@ -19,6 +20,7 @@ from joblib import Parallel, delayed
 import json
 import numpy as np
 import napari
+from napari.utils.colormaps import CyclicLabelColormap
 from pathlib import Path
 from qtpy.QtCore import QSize, Qt, QTimer
 from qtpy.QtWidgets import (
@@ -200,6 +202,8 @@ class VessQcWidget(QWidget):
         self.current_triplet = None
         self.loading_dialog = None  # Track loading dialog
         self.popup_window = None  # Track popup window
+        self.current_zoomed_segment = None  # Track currently zoomed segment
+        self._small_segments_label = None  # Track the label for small segments collection
         
         # Initialize segmentation worker
         self.segmentation_worker = SegmentationWorker(callback=self._on_segmentation_complete)
@@ -580,9 +584,9 @@ class VessQcWidget(QWidget):
 
         # Determine the names of the segments
         for i, segment in enumerate(self.segments, start=1):
-            # Check if this is the "small segments" collection (highest label)
+            # Check if this is the "Noise" collection (highest label)
             if segment['label'] == max_label:
-                segment['name'] = "Small_Segments"
+                segment['name'] = "Noise"
             else:
                 # Use actual label ID for segment name
                 segment['name'] = f"Segment_{segment['label']}"
@@ -600,6 +604,13 @@ class VessQcWidget(QWidget):
         self.viewer.add_labels(self.labels, name='Segmentation')
         print('Segmentation complete!')
 
+    def _is_small_segment(self, segment):
+        """Check if a segment is the small segments collection"""
+        small_label = getattr(self, '_small_segments_label', None)
+        if small_label is not None and segment.get('label') == small_label:
+            return True
+        return False
+    
     def show_popup_window(self):
         """ Define a pop-up window for the uncertainty list """
 
@@ -628,21 +639,28 @@ class VessQcWidget(QWidget):
         grid_layout.addWidget(QLabel('done'), 0, 3)
 
         # Separate small segments from regular segments
-        regular_segments = [s for s in self.segments if s['name'] != 'Small_Segments' and not s['done']]
-        small_segments = [s for s in self.segments if s['name'] == 'Small_Segments' and not s['done']]
+        regular_segments = [s for s in self.segments if not self._is_small_segment(s) and not s['done']]
+        small_segments = [s for s in self.segments if self._is_small_segment(s) and not s['done']]
         
         # Reverse regular segments (highest uncertainty first)
         regular_segments_reversed = list(reversed(regular_segments))
         
+        # Track the highlighted button to scroll to it later
+        highlighted_button = None
+        
         # Display regular segments (highest uncertainty first)
         idx = 1
         for segment in regular_segments_reversed:
-            self.new_entry(segment, grid_layout, idx)
+            button = self.new_entry(segment, grid_layout, idx)
+            if button and self.current_zoomed_segment and segment.get('label') == self.current_zoomed_segment.get('label'):
+                highlighted_button = button
             idx += 1
         
         # Display small segments at the end
         for segment in small_segments:
-            self.new_entry(segment, grid_layout, idx)
+            button = self.new_entry(segment, grid_layout, idx)
+            if button and self.current_zoomed_segment and segment.get('label') == self.current_zoomed_segment.get('label'):
+                highlighted_button = button
             idx += 1
 
         # show a horizontal line
@@ -670,15 +688,102 @@ class VessQcWidget(QWidget):
 
         # Show the pop-up window
         self.popup_window.show()
+        
+        # Scroll to the highlighted segment if there is one
+        if highlighted_button:
+            # Use QTimer to ensure the layout is fully updated before scrolling
+            QTimer.singleShot(0, lambda: scroll_area.ensureWidgetVisible(highlighted_button))
     
     def _refresh_popup_window(self):
         """Refresh the popup window content"""
         if not self.popup_window or not self.popup_window.isVisible():
             return
         
-        # Close and reopen the popup window
-        self.popup_window.close()
-        self.show_popup_window()
+        # Update content without closing/reopening
+        self._update_popup_window_content()
+    
+    def _update_popup_window_content(self):
+        """Update the popup window content without recreating the window"""
+        if not self.popup_window:
+            return
+        
+        # Get the existing layout
+        vbox_layout = self.popup_window.layout()
+        
+        # Clear all existing widgets
+        while vbox_layout.count():
+            item = vbox_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        
+        # Recreate the content (same as show_popup_window)
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        vbox_layout.addWidget(scroll_area)
+        
+        group_box = QGroupBox('List of segments:')
+        scroll_area.setWidget(group_box)
+        grid_layout = QGridLayout()
+        group_box.setLayout(grid_layout)
+        
+        # Add headers
+        grid_layout.addWidget(QLabel('Segment'), 0, 0)
+        grid_layout.addWidget(QLabel('Uncertainty'), 0, 1)
+        grid_layout.addWidget(QLabel('Counts'), 0, 2)
+        grid_layout.addWidget(QLabel('done'), 0, 3)
+        
+        # Separate small segments from regular segments
+        regular_segments = [s for s in self.segments if not self._is_small_segment(s) and not s['done']]
+        small_segments = [s for s in self.segments if self._is_small_segment(s) and not s['done']]
+        
+        # Reverse regular segments (highest uncertainty first)
+        regular_segments_reversed = list(reversed(regular_segments))
+        
+        # Track the highlighted button to scroll to it later
+        highlighted_button = None
+        
+        # Display regular segments (highest uncertainty first)
+        idx = 1
+        for segment in regular_segments_reversed:
+            button = self.new_entry(segment, grid_layout, idx)
+            if button and self.current_zoomed_segment and segment.get('label') == self.current_zoomed_segment.get('label'):
+                highlighted_button = button
+            idx += 1
+        
+        # Display small segments at the end
+        for segment in small_segments:
+            button = self.new_entry(segment, grid_layout, idx)
+            if button and self.current_zoomed_segment and segment.get('label') == self.current_zoomed_segment.get('label'):
+                highlighted_button = button
+            idx += 1
+        
+        # Show horizontal line
+        idx += 1
+        line = QWidget()
+        line.setFixedHeight(3)
+        line.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        line.setStyleSheet('background-color: mediumblue')
+        grid_layout.addWidget(line, idx, 0, 1, -1)
+        
+        # The treated areas are shown in the lower part of the group box
+        treated_segments = [s for s in self.segments if s['done']]
+        
+        if len(treated_segments) > 0:
+            idx += 1
+            grid_layout.addWidget(QLabel('Segment'), idx, 0)
+            grid_layout.addWidget(QLabel('Uncertainty'), idx, 1)
+            grid_layout.addWidget(QLabel('Counts'), idx, 2)
+            grid_layout.addWidget(QLabel('restore'), idx, 3)
+            
+            idx += 1
+            for segment in treated_segments:
+                self.new_entry(segment, grid_layout, idx)
+                idx += 1
+        
+        # Scroll to the highlighted segment if there is one
+        if highlighted_button:
+            # Use QTimer to ensure the layout is fully updated before scrolling
+            QTimer.singleShot(0, lambda: scroll_area.ensureWidgetVisible(highlighted_button))
         
     def new_entry(self, segment: dict, grid_layout: QGridLayout, idx: int):
         """
@@ -693,6 +798,11 @@ class VessQcWidget(QWidget):
             Layout for a QGroupBox
         idx : int
             Index in the grid_layout
+            
+        Returns
+        -------
+        QPushButton
+            The segment button widget (useful for scrolling to it)
         """
 
         # (13.08.2024, updated 07.10.2025)
@@ -703,6 +813,12 @@ class VessQcWidget(QWidget):
         if segment['done']:
             # disable button1 for treated areas
             button1.setEnabled(False)
+        
+        # Highlight if this is the currently zoomed segment
+        if (self.current_zoomed_segment is not None and 
+            segment.get('label') == self.current_zoomed_segment.get('label')):
+            button1.setStyleSheet('background-color: lightblue; font-weight: bold;')
+        
         grid_layout.addWidget(button1, idx, 0)
 
         uncertainty = '%.3f' % (segment['uncertainty'])
@@ -721,13 +837,7 @@ class VessQcWidget(QWidget):
             button3.clicked.connect(lambda: self.done(segment))
         grid_layout.addWidget(button3, idx, 3)
         
-        # Add rename button only for "Small_Segments" collection
-        if segment['name'] == 'Small_Segments' or segment.get('label') == getattr(self, '_small_segments_label', None):
-            button_rename = QPushButton('✏️')  # Pencil icon
-            button_rename.setMaximumWidth(30)
-            button_rename.setToolTip('Rename small segments collection')
-            button_rename.clicked.connect(lambda: self.show_rename_dialog(segment, button1))
-            grid_layout.addWidget(button_rename, idx, 4)
+        return button1
 
     def zoom_in(self, segment: dict, margin_factor: float):
         """
@@ -735,6 +845,9 @@ class VessQcWidget(QWidget):
         """
 
         # (25.06.2025, updated 07.10.2025)
+        # Track currently zoomed segment
+        self.current_zoomed_segment = segment
+        
         # Update segment count before zooming
         label = segment['label']
         count = int(np.sum(self.labels == label))  # Convert to Python int
@@ -755,10 +868,15 @@ class VessQcWidget(QWidget):
         minz, miny, minx = coords.min(axis=0)
         maxz, maxy, maxx = coords.max(axis=0)
 
-        # Enlage box
+        # Enlarge box
         sz, sy, sx = maxz - minz + 1, maxy - miny + 1, maxx - minx + 1
         size = max(sx, sy, sz)
-        margin = int(size * margin_factor / 2)
+        
+        # Adaptive margin: more context for smaller segments
+        # Minimum margin of 30, scales up to proportional margin for larger segments
+        base_margin = int(size * margin_factor / 2)
+        min_margin = 30
+        margin = max(min_margin, base_margin)
 
         # Limitation to the image
         shape = self.image.shape
@@ -778,8 +896,11 @@ class VessQcWidget(QWidget):
             startx:endx]
         cropped_labels = self.labels[startz:endz, starty:endy, startx:endx]
 
-        # Keep only inside the box
-        masked_labels = np.where(cropped_labels == label, label, 0)
+        # Remap segPred to label 1 for consistent coloring (blue)
+        cropped_segPred_display = np.where(cropped_segPred > 0, 1, 0).astype(np.uint8)
+        
+        # Remap segment to label 1 for consistent coloring (red)
+        masked_labels = np.where(cropped_labels == label, 1, 0).astype(np.uint8)
 
         # Display data in Napari
         name1 = 'Cropped ' + self.stem1
@@ -794,8 +915,17 @@ class VessQcWidget(QWidget):
         image_layer.events.contrast_limits.connect(self._on_image_settings_changed)
         image_layer.events.gamma.connect(self._on_image_settings_changed)
         
-        self.viewer.add_labels(cropped_segPred, name=name2)
-        layer = self.viewer.add_labels(masked_labels, name=name3)
+        # Add segPred layer with blue color for vessels
+        segpred_layer = self.viewer.add_labels(cropped_segPred_display, name=name2)
+        # Use CyclicLabelColormap - provide same color multiple times to ensure consistency
+        blue_colormap = CyclicLabelColormap(colors=['blue', 'blue'])
+        segpred_layer.colormap = blue_colormap
+        
+        # Add segment layer with red color for the current segment  
+        segment_layer = self.viewer.add_labels(masked_labels, name=name3)
+        # Use CyclicLabelColormap - provide same color multiple times to ensure consistency
+        red_colormap = CyclicLabelColormap(colors=['red', 'red'])
+        segment_layer.colormap = red_colormap
 
         # Set the appropriate level and focus
         com = ndimage.center_of_mass(masked_labels)     # center of mass
@@ -803,8 +933,12 @@ class VessQcWidget(QWidget):
         self.viewer.dims.current_step = com
         self.viewer.camera.center = com
 
-        # Change to the matching color
-        layer.selected_label = label
+        # Set selected label to 1 (since we remapped)
+        segment_layer.selected_label = 1
+        
+        # Update popup window to show highlight (if open)
+        if self.popup_window and self.popup_window.isVisible():
+            self._update_popup_window_content()
 
     def done(self, segment: dict):
         """
@@ -815,6 +949,9 @@ class VessQcWidget(QWidget):
         # (18.07.2024, updated 07.10.2025)
         self.compare_and_transfer(segment)  # transfer of data
         segment['done'] = True              # mark this area as treated
+        
+        # Clear current zoomed segment since we're going back to overview
+        self.current_zoomed_segment = None
         
         # Update segment count
         label = segment['label']
@@ -839,15 +976,23 @@ class VessQcWidget(QWidget):
         self.viewer.add_labels(self.segPred, name=self.stem2)
         self.viewer.add_labels(self.labels, name='Segmentation')
 
-        # open a new pop-up window
-        self.show_popup_window()
+        # Update popup window content instead of recreating
+        if self.popup_window and self.popup_window.isVisible():
+            self._update_popup_window_content()
+        else:
+            self.show_popup_window()
 
     def restore(self, segment: dict):
         """ Restore the data of a specific area in the pop-up window """
 
         # (19.07.2024)
         segment['done'] = False
-        self.show_popup_window()
+        
+        # Update popup window content instead of recreating
+        if self.popup_window and self.popup_window.isVisible():
+            self._update_popup_window_content()
+        else:
+            self.show_popup_window()
 
     def compare_and_transfer(self, segment: dict):
         """
@@ -969,8 +1114,9 @@ class VessQcWidget(QWidget):
                     uncertainty = float(seg.get('uncertainty', 0.0))
                     label_value = int(seg.get('label', 0))
                     
-                    if uncertainty >= 0.999:
-                        default_name = 'Small_Segments'
+                    # Check if this is the Noise segment (by label, not uncertainty)
+                    if self._small_segments_label and label_value == self._small_segments_label:
+                        default_name = 'Noise'
                     else:
                         default_name = f"Segment_{label_value}"
                     
@@ -1235,6 +1381,14 @@ class VessQcWidget(QWidget):
         """Load a dataset from a DatasetTriplet"""
         # (07.10.2025)
         try:
+            # Close segment list window when loading new dataset (contents will be outdated)
+            if self.popup_window and self.popup_window.isVisible():
+                self.popup_window.close()
+                self.popup_window = None
+            
+            # Clear current zoomed segment
+            self.current_zoomed_segment = None
+            
             self.current_triplet = triplet
             raw_file, segpred_file, uncertainty_file = self.data_manager.get_files_for_loading(triplet)
             
@@ -1319,16 +1473,19 @@ class VessQcWidget(QWidget):
                         print(f"DEBUG:   Loaded {len(self.segments)} segments from {segments_file.name}")
                         
                         # Synthesize names from labels (name field no longer stored in JSON)
+                        # Find max label to identify Noise segment
+                        max_label = max(seg.get('label', 0) for seg in self.segments)
+                        self._small_segments_label = max_label  # Store for later reference
+                        
                         for seg in self.segments:
                             # Check if there's a custom name
                             if 'custom_name' in seg:
                                 seg['name'] = seg['custom_name']
                             else:
                                 # Synthesize default name
-                                uncertainty = seg.get('uncertainty', 0.0)
-                                # Small segments collection has uncertainty ~0.9999
-                                if uncertainty >= 0.999:
-                                    seg['name'] = 'Small_Segments'
+                                # Check if this is the Noise segment (by label, not uncertainty)
+                                if seg.get('label') == max_label:
+                                    seg['name'] = 'Noise'
                                 else:
                                     seg['name'] = f"Segment_{seg['label']}"
                         
@@ -1406,17 +1563,20 @@ class VessQcWidget(QWidget):
         # Filter segments
         filtered_segments = []
         for segment in self.segments:
-            if segment['label'] in unique_labels:
-                segment['counts'] = int(counts[segment['label']])  # Convert to Python int
-                filtered_segments.append(segment)
+            label = segment['label']
+            if label in unique_labels:
+                # Bounds check for counts array access
+                if label < len(counts):
+                    segment['counts'] = int(counts[label])  # Convert to Python int
+                    filtered_segments.append(segment)
         
-        # Add the "small segments" group if it exists
-        if max_label in unique_labels:
+        # Add the "Noise" group if it exists
+        if max_label in unique_labels and max_label < len(counts):
             segment = dict(
-                name='Small_Segments',
+                name='Noise',
                 label=max_label,
                 uncertainty=0.9999,
-                counts=counts[max_label],
+                counts=int(counts[max_label]),
                 coords=None,
                 done=False,
             )
@@ -1432,8 +1592,8 @@ class VessQcWidget(QWidget):
             if segment['name'] == '':
                 segment['name'] = f'Segment_{segment["label"]}'  # Use label ID, not sequential
                 segment_num += 1
-            elif segment['name'] == 'Small_Segments':
-                # Keep the Small_Segments name
+            elif segment['name'] == 'Noise':
+                # Keep the Noise name
                 pass
         
         # Update the Segmentation layer if it exists
@@ -1490,31 +1650,6 @@ class VessQcWidget(QWidget):
         # (07.10.2025)
         # Automatically save the new settings
         self._save_image_layer_settings()
-    
-    def rename_segment(self, segment: dict, new_name: str):
-        """Rename a segment"""
-        # (07.10.2025)
-        if segment in self.segments:
-            segment['name'] = new_name
-            print(f"Renamed segment to '{new_name}'")
-    
-    def show_rename_dialog(self, segment: dict, button: QPushButton):
-        """Show dialog to rename the small segments collection"""
-        # (07.10.2025)
-        from qtpy.QtWidgets import QInputDialog
-        
-        current_name = segment['name']
-        new_name, ok = QInputDialog.getText(
-            self, 
-            'Rename Small Segments Collection',
-            'Enter new name for small segments collection:',
-            text=current_name
-        )
-        
-        if ok and new_name and new_name != current_name:
-            self.rename_segment(segment, new_name)
-            button.setText(new_name)
-            print(f"Small segments collection renamed to '{new_name}'")
     
     def _on_segmentation_complete(self, dataset_name: str, success: bool, error_message: str):
         """

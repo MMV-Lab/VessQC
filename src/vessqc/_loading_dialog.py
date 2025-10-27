@@ -98,7 +98,7 @@ class LoadingDialog(QDialog):
         layout.addLayout(dir_layout)
         
         # Info label
-        self.info_label = QLabel('Segments ordered by priority (highest uncertainty first)')
+        self.info_label = QLabel('Datasets ordered by highest uncertainty (excluding Noise), then size')
         self.info_label.setStyleSheet('color: gray; font-style: italic;')
         layout.addWidget(self.info_label)
         
@@ -220,7 +220,7 @@ class LoadingDialog(QDialog):
         print(f"DEBUG:   Datasets with segmentation: {datasets_with_seg}")
         print(f"DEBUG:   Datasets without segmentation: {datasets_without_seg}")
         
-        status_text = f'Found {len(self.data_manager.all_segment_priorities)} segments across {datasets_with_seg} datasets'
+        status_text = f'Found {len(self.data_manager.datasets)} datasets'
         if datasets_without_seg > 0:
             status_text += f' ({datasets_without_seg} calculating...)'
         self.status_label.setText(status_text)
@@ -247,79 +247,59 @@ class LoadingDialog(QDialog):
             self.queue_label.setText('')
     
     def _update_dataset_list(self):
-        """Update the dataset list widget to show segments"""
+        """Update the dataset list widget to show datasets"""
         print(f"\nDEBUG: LoadingDialog._update_dataset_list() called")
-        print(f"DEBUG:   all_segment_priorities length: {len(self.data_manager.all_segment_priorities)}")
+        print(f"DEBUG:   Total datasets: {len(self.data_manager.datasets)}")
         
         self.dataset_list.clear()
         
-        if not self.data_manager.all_segment_priorities:
-            # Check if there are datasets without segmentation
-            datasets_without_seg = [d for d in self.data_manager.datasets if not d.has_segmentation]
-            print(f"DEBUG:   No segments available, {len(datasets_without_seg)} datasets without segmentation")
-            
-            if datasets_without_seg:
-                item = QListWidgetItem(f'Calculating segmentation for {len(datasets_without_seg)} datasets...')
-                item.setFlags(Qt.NoItemFlags)
-                item.setForeground(Qt.blue)
-                self.dataset_list.addItem(item)
-            else:
-                item = QListWidgetItem('No segments found')
-                item.setFlags(Qt.NoItemFlags)
-                self.dataset_list.addItem(item)
+        if not self.data_manager.datasets:
+            item = QListWidgetItem('No datasets found')
+            item.setFlags(Qt.NoItemFlags)
+            self.dataset_list.addItem(item)
             return
         
-        # Display top 10 unfinished segments by priority
-        all_segments = self.data_manager.all_segment_priorities
-        top_10 = all_segments[:10]
+        # Check if there are datasets without segmentation
+        datasets_without_seg = [d for d in self.data_manager.datasets if not d.has_segmentation]
+        print(f"DEBUG:   Datasets without segmentation: {len(datasets_without_seg)}")
         
-        # Find datasets with temp files that aren't in top 10
-        datasets_in_top_10 = set(s.triplet.base_name for s in top_10)
-        temp_datasets = set(s.triplet.base_name for s in all_segments if s.triplet.has_temp)
-        missing_temp_datasets = temp_datasets - datasets_in_top_10
+        if datasets_without_seg and not any(d.has_segmentation for d in self.data_manager.datasets):
+            # All datasets are calculating
+            item = QListWidgetItem(f'Calculating segmentation for {len(datasets_without_seg)} datasets...')
+            item.setFlags(Qt.NoItemFlags)
+            item.setForeground(Qt.blue)
+            self.dataset_list.addItem(item)
+            return
         
-        print(f"DEBUG:   Temp datasets: {temp_datasets}")
-        print(f"DEBUG:   Datasets in top 10: {datasets_in_top_10}")
-        print(f"DEBUG:   Missing temp datasets: {missing_temp_datasets}")
+        # Display ALL datasets (already sorted by uncertainty desc, then size desc)
+        print(f"DEBUG:   Displaying all {len(self.data_manager.datasets)} datasets:")
         
-        # Add highest priority segment from each missing temp dataset
-        additional_temp_segments = []
-        for dataset_name in missing_temp_datasets:
-            # Find highest priority segment from this dataset
-            dataset_segments = [s for s in all_segments 
-                              if s.triplet.base_name == dataset_name and s.triplet.has_temp]
-            if dataset_segments:
-                additional_temp_segments.append(dataset_segments[0])  # Highest priority
-                print(f"DEBUG:     Adding temp segment: {dataset_segments[0]}")
-        
-        # Sort additional temp segments by priority
-        additional_temp_segments.sort(key=lambda x: x.uncertainty, reverse=True)
-        
-        # Combine: top 10 + additional temp datasets
-        display_segments = top_10 + additional_temp_segments
-        
-        print(f"DEBUG:   Displaying {len(display_segments)} segments:")
-        print(f"DEBUG:     Top 10: {len(top_10)}")
-        print(f"DEBUG:     Additional temp files: {len(additional_temp_segments)}")
-        
-        for i, seg_priority in enumerate(display_segments):
-            temp_marker = "[TEMP]" if seg_priority.triplet.has_temp else ""
-            print(f"DEBUG:     {i+1}. {seg_priority} {temp_marker}")
-            # Create display text: "dataset_name - Segment_X (0.998)"
-            temp_indicator = " [TEMP]" if seg_priority.triplet.has_temp else ""
-            display_text = f"{seg_priority.dataset_name} - {seg_priority.segment_name} ({seg_priority.uncertainty:.3f}){temp_indicator}"
+        for i, triplet in enumerate(self.data_manager.datasets):
+            # Skip datasets without segmentation (they're being calculated)
+            if not triplet.has_segmentation:
+                print(f"DEBUG:     {i+1}. {triplet.base_name}: calculating...")
+                continue
+            
+            uncertainty = triplet.max_uncertainty_excluding_noise if triplet.max_uncertainty_excluding_noise is not None else 0.0
+            voxel_count = triplet.voxel_count_at_max_uncertainty if triplet.voxel_count_at_max_uncertainty is not None else 0
+            
+            temp_indicator = " [TEMP]" if triplet.has_temp else ""
+            print(f"DEBUG:     {i+1}. {triplet.base_name}: uncertainty={uncertainty:.3f}, size={voxel_count}{temp_indicator}")
+            
+            # Create display text: "dataset_name (uncertainty: X.XXX, size: YYYY) [TEMP]"
+            display_text = f"{triplet.base_name} (uncertainty: {uncertainty:.3f}, size: {voxel_count}){temp_indicator}"
             
             item = QListWidgetItem(display_text)
-            item.setData(Qt.UserRole, seg_priority.triplet)  # Store triplet in item
+            item.setData(Qt.UserRole, triplet)  # Store triplet in item
             
             # Color code based on uncertainty (higher = higher priority)
-            if seg_priority.uncertainty > 0.7:
+            if uncertainty > 0.7:
                 item.setForeground(Qt.red)  # High priority (high uncertainty)
-            elif seg_priority.uncertainty > 0.4:
+            elif uncertainty > 0.4:
                 item.setForeground(Qt.darkYellow)  # Medium priority
             # else: default color (low priority)
             
-            if seg_priority.triplet.has_temp:
+            if triplet.has_temp:
                 # Make temp files bold
                 font = item.font()
                 font.setBold(True)

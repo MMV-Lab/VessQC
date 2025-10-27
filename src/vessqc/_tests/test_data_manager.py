@@ -164,9 +164,9 @@ def test_load_existing_segmentation_filters_done(data_manager, temp_data_dir):
     seg_dir = data_manager.segmentation_dir
     labels = np.ones((10, 10, 10), dtype=np.int32)
     segments = [
-        {'name': 'Segment_1', 'label': 1, 'uncertainty': 0.9, 'counts': 100, 'coords': None, 'done': True},
-        {'name': 'Segment_2', 'label': 2, 'uncertainty': 0.8, 'counts': 80, 'coords': None, 'done': False},
-        {'name': 'Segment_3', 'label': 3, 'uncertainty': 0.7, 'counts': 60, 'coords': None, 'done': False}
+        {'label': 1, 'uncertainty': 0.9, 'counts': 300, 'coords': None, 'done': True},
+        {'label': 2, 'uncertainty': 0.8, 'counts': 280, 'coords': None, 'done': False},
+        {'label': 99, 'uncertainty': 0.9999, 'counts': 60, 'coords': None, 'done': False}  # Noise
     ]
     
     imwrite(seg_dir / 'test_labels.tif', labels)
@@ -179,22 +179,22 @@ def test_load_existing_segmentation_filters_done(data_manager, temp_data_dir):
     # Calculate priorities
     priority = data_manager._load_existing_segmentation(triplet)
     
-    # Should only have 2 segment priorities (done segment filtered out)
-    assert len(triplet.segment_priorities) == 2
-    assert all(s.segment_name != 'Segment_1' for s in triplet.segment_priorities)
-    assert triplet.segment_priorities[0].uncertainty == 0.8  # Highest undone
+    # Should only have 1 segment priority (done segment and Noise filtered out)
+    assert len(triplet.segment_priorities) == 1
+    assert triplet.segment_priorities[0].uncertainty == 0.8  # Highest undone (excluding Noise)
 
 
 @pytest.mark.data_manager
-def test_load_existing_segmentation_filters_small_segments(data_manager, temp_data_dir):
-    """Test that small segments (0.9999) are filtered out"""
+def test_load_existing_segmentation_filters_noise_by_label(data_manager, temp_data_dir):
+    """Test that Noise is identified by max label, not uncertainty value"""
     data_manager.set_data_directory(temp_data_dir)
     
     seg_dir = data_manager.segmentation_dir
     labels = np.ones((10, 10, 10), dtype=np.int32)
     segments = [
-        {'name': 'Segment_1', 'label': 1, 'uncertainty': 0.8, 'counts': 100, 'coords': None, 'done': False},
-        {'name': 'Small_Segments', 'label': 99, 'uncertainty': 0.9999, 'counts': 20, 'coords': None, 'done': False}
+        {'label': 1, 'uncertainty': 0.8, 'counts': 300, 'coords': None, 'done': False},
+        {'label': 2, 'uncertainty': 1.0, 'counts': 350, 'coords': None, 'done': False},  # Real segment with uncertainty 1.0
+        {'label': 99, 'uncertainty': 0.9999, 'counts': 20, 'coords': None, 'done': False}  # Noise (max label)
     ]
     
     imwrite(seg_dir / 'test_labels.tif', labels)
@@ -206,9 +206,12 @@ def test_load_existing_segmentation_filters_small_segments(data_manager, temp_da
     
     priority = data_manager._load_existing_segmentation(triplet)
     
-    # Should only have 1 segment priority (small segments filtered)
-    assert len(triplet.segment_priorities) == 1
-    assert triplet.segment_priorities[0].segment_name == 'Segment_1'
+    # Should have 2 segment priorities (Noise filtered by label, not uncertainty)
+    assert len(triplet.segment_priorities) == 2
+    # Verify the 1.0 uncertainty segment is included
+    uncertainties = [s.uncertainty for s in triplet.segment_priorities]
+    assert 1.0 in uncertainties
+    assert 0.9999 not in uncertainties  # Noise excluded
 
 
 @pytest.mark.data_manager
@@ -242,8 +245,9 @@ def test_priority_calculation_excludes_done(data_manager, temp_data_dir):
     seg_dir = data_manager.segmentation_dir
     labels = np.ones((10, 10, 10), dtype=np.int32)
     segments = [
-        {'name': 'Segment_1', 'label': 1, 'uncertainty': 0.9, 'counts': 100, 'coords': None, 'done': True},
-        {'name': 'Segment_2', 'label': 2, 'uncertainty': 0.5, 'counts': 80, 'coords': None, 'done': False}
+        {'label': 1, 'uncertainty': 0.9, 'counts': 300, 'coords': None, 'done': True},
+        {'label': 2, 'uncertainty': 0.5, 'counts': 280, 'coords': None, 'done': False},
+        {'label': 99, 'uncertainty': 0.9999, 'counts': 20, 'coords': None, 'done': False}  # Noise
     ]
     
     imwrite(seg_dir / 'test_labels.tif', labels)
@@ -256,4 +260,106 @@ def test_priority_calculation_excludes_done(data_manager, temp_data_dir):
     # Should only have undone segments
     assert len(data_manager.all_segment_priorities) == 1
     assert data_manager.all_segment_priorities[0].uncertainty == 0.5
+
+
+@pytest.mark.data_manager
+def test_dataset_metrics_excluding_noise(data_manager, temp_data_dir):
+    """Test that dataset metrics exclude Noise segment"""
+    data_manager.set_data_directory(temp_data_dir)
+    
+    seg_dir = data_manager.segmentation_dir
+    labels = np.ones((10, 10, 10), dtype=np.int32)
+    segments = [
+        {'label': 1, 'uncertainty': 0.7, 'counts': 300, 'coords': None, 'done': False},
+        {'label': 2, 'uncertainty': 0.9, 'counts': 500, 'coords': None, 'done': False},
+        {'label': 3, 'uncertainty': 0.9, 'counts': 300, 'coords': None, 'done': False},  # Same uncertainty as label 2
+        {'label': 99, 'uncertainty': 0.9999, 'counts': 50, 'coords': None, 'done': False}  # Noise (max label)
+    ]
+    
+    imwrite(seg_dir / 'test_labels.tif', labels)
+    with (seg_dir / 'test_segments.json').open('w') as f:
+        json.dump(segments, f)
+    
+    datasets = data_manager.detect_datasets()
+    triplet = datasets[0]
+    
+    priority = data_manager._load_existing_segmentation(triplet)
+    
+    # Max uncertainty should be 0.9 (excluding Noise which is 0.9999)
+    assert triplet.max_uncertainty_excluding_noise == 0.9
+    # Voxel count should be sum of all segments with uncertainty 0.9
+    assert triplet.voxel_count_at_max_uncertainty == 800  # 500 + 300
+
+
+@pytest.mark.data_manager
+def test_dataset_metrics_with_uncertainty_1_0(data_manager, temp_data_dir):
+    """Test that uncertainty 1.0 in regular segments is handled correctly"""
+    data_manager.set_data_directory(temp_data_dir)
+    
+    seg_dir = data_manager.segmentation_dir
+    labels = np.ones((10, 10, 10), dtype=np.int32)
+    segments = [
+        {'label': 1, 'uncertainty': 1.0, 'counts': 400, 'coords': None, 'done': False},  # Real segment
+        {'label': 2, 'uncertainty': 0.8, 'counts': 200, 'coords': None, 'done': False},
+        {'label': 99, 'uncertainty': 0.9999, 'counts': 50, 'coords': None, 'done': False}  # Noise
+    ]
+    
+    imwrite(seg_dir / 'test_labels.tif', labels)
+    with (seg_dir / 'test_segments.json').open('w') as f:
+        json.dump(segments, f)
+    
+    datasets = data_manager.detect_datasets()
+    triplet = datasets[0]
+    
+    priority = data_manager._load_existing_segmentation(triplet)
+    
+    # Max uncertainty should be 1.0 (real segment, not Noise)
+    assert triplet.max_uncertainty_excluding_noise == 1.0
+    # Voxel count should be from the segment with uncertainty 1.0
+    assert triplet.voxel_count_at_max_uncertainty == 400
+
+
+@pytest.mark.data_manager
+def test_dataset_sorting_by_metrics(data_manager, temp_data_dir):
+    """Test that datasets are sorted by uncertainty then size"""
+    data_manager.set_data_directory(temp_data_dir)
+    
+    seg_dir = data_manager.segmentation_dir
+    
+    # Create multiple datasets with different metrics
+    for i, (uncert, count) in enumerate([(0.9, 300), (0.9, 500), (0.7, 1000)]):
+        dataset_name = f'test{i}'
+        
+        # Create files
+        img = np.random.rand(10, 10, 10).astype(np.uint8)
+        segpred = np.random.randint(0, 3, (10, 10, 10)).astype(np.uint8)
+        uncertainty = np.random.rand(10, 10, 10).astype(np.float32)
+        
+        imwrite(temp_data_dir / f'{dataset_name}_IM.tif', img)
+        imwrite(temp_data_dir / f'{dataset_name}_segPred.tif', segpred)
+        imwrite(temp_data_dir / f'{dataset_name}_uncertainty.tif', uncertainty)
+        
+        # Create segmentation
+        labels = np.ones((10, 10, 10), dtype=np.int32)
+        segments = [
+            {'label': 1, 'uncertainty': uncert, 'counts': count, 'coords': None, 'done': False},
+            {'label': 99, 'uncertainty': 0.9999, 'counts': 10, 'coords': None, 'done': False}
+        ]
+        
+        imwrite(seg_dir / f'{dataset_name}_labels.tif', labels)
+        with (seg_dir / f'{dataset_name}_segments.json').open('w') as f:
+            json.dump(segments, f)
+    
+    datasets = data_manager.detect_datasets()
+    data_manager.calculate_priorities(threaded=False)
+    
+    # Should be sorted: (0.9, 500), (0.9, 300), (0.7, 1000)
+    assert data_manager.datasets[0].max_uncertainty_excluding_noise == 0.9
+    assert data_manager.datasets[0].voxel_count_at_max_uncertainty == 500
+    
+    assert data_manager.datasets[1].max_uncertainty_excluding_noise == 0.9
+    assert data_manager.datasets[1].voxel_count_at_max_uncertainty == 300
+    
+    assert data_manager.datasets[2].max_uncertainty_excluding_noise == 0.7
+    assert data_manager.datasets[2].voxel_count_at_max_uncertainty == 1000
 
