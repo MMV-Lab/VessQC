@@ -267,6 +267,17 @@ class VessQcWidget(QWidget):
         btnPopupWindow = QPushButton('Show list of segments')
         btnPopupWindow.clicked.connect(self.show_popup_window)
         self.layout().addWidget(btnPopupWindow)
+        
+        # Neighboring segments controls
+        self.cbx_show_neighbors = QCheckBox('Show neighboring segments')
+        self.cbx_show_neighbors.stateChanged.connect(self._toggle_neighbors_visibility)
+        self.layout().addWidget(self.cbx_show_neighbors)
+        
+        btnIdentifySegment = QPushButton('Identify segment (click on voxel)')
+        btnIdentifySegment.setCheckable(True)  # Make it a toggle button
+        btnIdentifySegment.toggled.connect(self._toggle_identify_mode)
+        self.layout().addWidget(btnIdentifySegment)
+        self._identify_mode = False  # Track identify mode state
 
         btnSaveIntermediate = QPushButton('Save intermediate data')
         btnSaveIntermediate.clicked.connect(self.save_intermediate_data)
@@ -919,6 +930,13 @@ class VessQcWidget(QWidget):
         
         # Remap segment to label 1 for consistent coloring (red)
         masked_labels = np.where(cropped_labels == label, 1, 0).astype(np.uint8)
+        
+        # Create neighboring segments layer (other segments in this region)
+        neighboring_segments = np.where(
+            (cropped_labels > 0) & (cropped_labels != label),
+            cropped_labels,
+            0
+        ).astype(np.int32)
 
         # Display data in Napari
         name1 = 'Cropped ' + self.stem1
@@ -944,6 +962,13 @@ class VessQcWidget(QWidget):
         # Use CyclicLabelColormap - provide same color multiple times to ensure consistency
         red_colormap = CyclicLabelColormap(colors=['red', 'red'])
         segment_layer.colormap = red_colormap
+        
+        # Add neighboring segments layer (hidden by default)
+        neighbors_layer = self.viewer.add_labels(neighboring_segments, name='Neighboring Segments')
+        neighbors_layer.visible = False  # Hidden by default for clean view
+        # Sync checkbox state if it exists
+        if hasattr(self, 'cbx_show_neighbors'):
+            neighbors_layer.visible = self.cbx_show_neighbors.isChecked()
 
         # Set the appropriate level and focus
         com = ndimage.center_of_mass(masked_labels)     # center of mass
@@ -953,6 +978,9 @@ class VessQcWidget(QWidget):
 
         # Set selected label to 1 (since we remapped)
         segment_layer.selected_label = 1
+        
+        # Focus on the segment layer (the one being edited)
+        self.viewer.layers.selection.active = segment_layer
         
         # Update popup window to show highlight (if open)
         if self.popup_window and self.popup_window.isVisible():
@@ -1672,6 +1700,107 @@ class VessQcWidget(QWidget):
         # (07.10.2025)
         # Automatically save the new settings
         self._save_image_layer_settings()
+    
+    def _toggle_neighbors_visibility(self, state):
+        """Toggle visibility of neighboring segments layer and update focus"""
+        # (29.10.2025)
+        if 'Neighboring Segments' not in self.viewer.layers:
+            return
+            
+        neighbors_layer = self.viewer.layers['Neighboring Segments']
+        neighbors_layer.visible = (state == Qt.Checked)
+        
+        # Update layer focus
+        if state == Qt.Checked:
+            # Focus on neighboring segments when shown
+            self.viewer.layers.selection.active = neighbors_layer
+        else:
+            # Focus back on current segment when hidden
+            if self.current_zoomed_segment and self.current_zoomed_segment['name'] in self.viewer.layers:
+                self.viewer.layers.selection.active = self.viewer.layers[self.current_zoomed_segment['name']]
+    
+    def _toggle_identify_mode(self, checked):
+        """Toggle identify mode on/off"""
+        # (29.10.2025)
+        self._identify_mode = checked
+        
+        if checked:
+            # Enable identify mode - connect mouse click event
+            if 'Neighboring Segments' in self.viewer.layers:
+                neighbors_layer = self.viewer.layers['Neighboring Segments']
+                neighbors_layer.mouse_double_click_callbacks.append(self._on_neighbor_clicked)
+                neighbors_layer.visible = True  # Ensure visible in identify mode
+                self.viewer.layers.selection.active = neighbors_layer
+                
+                # Sync checkbox
+                if hasattr(self, 'cbx_show_neighbors'):
+                    self.cbx_show_neighbors.blockSignals(True)
+                    self.cbx_show_neighbors.setChecked(True)
+                    self.cbx_show_neighbors.blockSignals(False)
+            else:
+                QMessageBox.information(self, 'Not in Segment View',
+                    'Please zoom into a segment first to use identify mode.')
+                # Uncheck the button
+                sender = self.sender()
+                if sender:
+                    sender.setChecked(False)
+        else:
+            # Disable identify mode - disconnect event
+            if 'Neighboring Segments' in self.viewer.layers:
+                neighbors_layer = self.viewer.layers['Neighboring Segments']
+                if self._on_neighbor_clicked in neighbors_layer.mouse_double_click_callbacks:
+                    neighbors_layer.mouse_double_click_callbacks.remove(self._on_neighbor_clicked)
+                # Don't auto-hide the layer - let user control it via checkbox
+    
+    def _on_neighbor_clicked(self, layer, event):
+        """Handle click on neighboring segments layer"""
+        # (29.10.2025)
+        # Get clicked position
+        coords = layer.world_to_data(event.position)
+        z, y, x = [int(round(c)) for c in coords]
+        
+        # Check bounds
+        if not (0 <= z < layer.data.shape[0] and
+                0 <= y < layer.data.shape[1] and
+                0 <= x < layer.data.shape[2]):
+            return
+        
+        # Get segment label at clicked position
+        segment_label = int(layer.data[z, y, x])
+        
+        if segment_label == 0:
+            return  # Clicked on background
+        
+        # Find segment
+        segment = next((s for s in self.segments if s['label'] == segment_label), None)
+        if segment is None:
+            return
+        
+        # Show dialog with jump option
+        msg = QMessageBox(self)
+        msg.setWindowTitle('Segment Identified')
+        msg.setText(f"Segment: {segment['name']}\n"
+                   f"Label: {segment_label}\n"
+                   f"Uncertainty: {segment['uncertainty']:.4f}\n"
+                   f"Voxel count: {segment['counts']}\n"
+                   f"Status: {'Done' if segment['done'] else 'Not done'}")
+        
+        if not segment['done']:
+            jump_button = msg.addButton('Jump to Segment', QMessageBox.AcceptRole)
+            msg.addButton('Cancel', QMessageBox.RejectRole)
+            msg.exec_()
+            
+            if msg.clickedButton() == jump_button:
+                # Hide neighboring segments when jumping
+                if hasattr(self, 'cbx_show_neighbors'):
+                    self.cbx_show_neighbors.blockSignals(True)
+                    self.cbx_show_neighbors.setChecked(False)
+                    self.cbx_show_neighbors.blockSignals(False)
+                
+                self.zoom_in(segment, 0.75)
+        else:
+            msg.addButton('OK', QMessageBox.AcceptRole)
+            msg.exec_()
     
     def _on_segmentation_complete(self, dataset_name: str, success: bool, error_message: str):
         """
