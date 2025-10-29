@@ -303,14 +303,21 @@ class SegmentationWorker:
         tuple
             (labels, segments) where labels is the label array and segments is metadata
         """
-        # Find unique uncertainty values
-        unique_uncertainties = np.unique(uncertainty)
+        # Find unique uncertainty values only where segPred > 0 (vessel regions)
+        # This prevents segmenting the entire volume including background
+        vessel_mask = segpred > 0
+        uncertainty_vessels = uncertainty[vessel_mask]
+        
+        # Round to 3 decimals to handle continuous data (matches tolerance 1e-3)
+        # This prevents millions of jobs for continuous uncertainty values
+        unique_uncertainties = np.unique(np.round(uncertainty_vessels, decimals=3))
+        # Filter zeros (in case tiny values rounded to 0.000)
         unique_uncertainties = unique_uncertainties[unique_uncertainties > 0]
         num_unique_uncert = len(unique_uncertainties)
-        print(f"DEBUG: Found {num_unique_uncert} unique uncertainty values")
+        print(f"DEBUG: Found {num_unique_uncert} unique uncertainty values in vessel regions (after rounding to 3 decimals)")
         print(f"DEBUG: Uncertainty range: {np.min(unique_uncertainties):.4f} to {np.max(unique_uncertainties):.4f}")
         
-        tolerance = 1e-2
+        tolerance = 1e-3
         structure = np.ones((3, 3, 3), dtype=int)
         
         # Parallel segmentation
@@ -372,6 +379,17 @@ class SegmentationWorker:
         counts = np.bincount(labels.ravel())
         uncert_values[max_label] = 0.9999
         
+        # Calculate actual max uncertainty for each label from original data
+        print(f"DEBUG: Calculating actual max uncertainties for segments...")
+        for label_val in unique_labels:
+            if label_val != max_label:  # Skip the Noise segment
+                mask = labels == label_val
+                segment_uncert = uncertainty[mask]
+                segment_uncert = segment_uncert[segment_uncert > 0]
+                if len(segment_uncert) > 0:
+                    # Use actual max from original data, not rounded value
+                    uncert_values[label_val] = float(np.max(segment_uncert))
+        
         segments = []
         for label in unique_labels:
             segment = {
@@ -390,13 +408,13 @@ class SegmentationWorker:
         # Assign names using label IDs
         for i, segment in enumerate(segments, start=1):
             if segment['label'] == max_label:
-                segment['name'] = "Small_Segments"
+                segment['name'] = "Noise"
             else:
                 segment['name'] = f"Segment_{segment['label']}"
         
         print(f"DEBUG: Created {len(segments)} segments")
         if len(segments) > 0:
-            uncertainties = [s['uncertainty'] for s in segments if s['name'] != 'Small_Segments']
+            uncertainties = [s['uncertainty'] for s in segments if s['name'] != 'Noise']
             if uncertainties:
                 print(f"DEBUG: Uncertainty range in segments: {min(uncertainties):.4f} to {max(uncertainties):.4f}")
         

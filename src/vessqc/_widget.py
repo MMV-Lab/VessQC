@@ -488,11 +488,18 @@ class VessQcWidget(QWidget):
         # Process events to keep UI responsive
         QApplication.processEvents()
 
-        unique_uncertainties = np.unique(uncertainty)
+        # Find unique uncertainty values only where segPred > 0 (vessel regions)
+        # This prevents segmenting the entire volume including background
+        vessel_mask = self.segPred > 0
+        uncertainty_vessels = uncertainty[vessel_mask]
+        
+        # Round to 3 decimals to handle continuous data (matches tolerance 1e-3)
+        unique_uncertainties = np.unique(np.round(uncertainty_vessels, decimals=3))
+        # Filter zeros (in case tiny values rounded to 0.000)
         unique_uncertainties = unique_uncertainties[unique_uncertainties > 0]
         num_unique_uncert = len(unique_uncertainties)
-        print(f'Found {num_unique_uncert} unique uncertainty values')
-        tolerance = 1e-2
+        print(f'Found {num_unique_uncert} unique uncertainty values in vessel regions (after rounding to 3 decimals)')
+        tolerance = 1e-3
         structure = np.ones((3, 3, 3), dtype=int)   # Connectivity
 
         # Process events before heavy computation
@@ -563,6 +570,17 @@ class VessQcWidget(QWidget):
         unique_labels = unique_labels[unique_labels != 0]
         counts = np.bincount(self.labels.ravel())
         uncert_values[max_label] = 0.9999
+
+        # Calculate actual max uncertainty for each label from original data
+        print('Calculating actual max uncertainties for segments...')
+        for label_val in unique_labels:
+            if label_val != max_label:  # Skip the Noise segment
+                mask = self.labels == label_val
+                segment_uncert = uncertainty[mask]
+                segment_uncert = segment_uncert[segment_uncert > 0]
+                if len(segment_uncert) > 0:
+                    # Use actual max from original data, not rounded value
+                    uncert_values[label_val] = float(np.max(segment_uncert))
 
         self.segments = list()
         for label in unique_labels:
@@ -1023,9 +1041,13 @@ class VessQcWidget(QWidget):
             start_z, start_y, start_x = coords[0]
             end_z,   end_y,   end_x   = coords[1]
 
-            # Create an empty image and insert the segment data
+            # Remap segment_data back to original label (it was remapped to 1 for display)
+            # segment_data contains 0 and 1, we need to convert 1 → original label
+            segment_data_remapped = np.where(segment_data > 0, label, 0)
+
+            # Create an empty image and insert the remapped segment data
             new_data = np.zeros_like(self.labels, dtype=int)
-            new_data[start_z:end_z, start_y:end_y, start_x:end_x] = segment_data
+            new_data[start_z:end_z, start_y:end_y, start_x:end_x] = segment_data_remapped
 
             # compare new and old data
             old_data = np.where(self.labels == label, label, 0)
@@ -1199,7 +1221,7 @@ class VessQcWidget(QWidget):
         
         # 1st: Close any open segment layers and transfer changes
         lst = [layer for layer in self.viewer.layers
-            if layer.name.startswith('Segment_') and
+            if (layer.name.startswith('Segment_') or layer.name == 'Noise') and
             isinstance(layer, napari.layers.Labels)]
 
         for layer in lst:

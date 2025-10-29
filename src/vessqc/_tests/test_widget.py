@@ -263,7 +263,7 @@ def test_new_entry(widget, segments):
 @pytest.mark.zoom_in
 def test_zoom_in(widget, image, segPred, labels, cropped_segPred,
     segment_4, segments):
-    # (06.08.2025)
+    # (06.08.2025, updated for label remapping)
     widget.image    = image
     widget.segPred  = segPred
     widget.labels   = labels
@@ -272,13 +272,17 @@ def test_zoom_in(widget, image, segPred, labels, cropped_segPred,
     widget.stem2    = 'Box32x32_segPred'
     widget.zoom_in(segments[3], 0.75)
 
+    # After label remapping, cropped_segPred should have all non-zero labels → 1
     name = 'Cropped Box32x32_segPred'
     layer = widget.viewer.layers[name]
-    assert np.array_equal(layer.data, cropped_segPred)
+    expected_remapped = np.where(cropped_segPred > 0, 1, 0)
+    assert np.array_equal(layer.data, expected_remapped)
 
+    # Segment should also be remapped to 1
     name = 'Segment_4'
     layer = widget.viewer.layers[name]
-    assert np.array_equal(layer.data, segment_4)
+    expected_segment = np.where(segment_4 > 0, 1, 0)
+    assert np.array_equal(layer.data, expected_segment)
 
     assert widget.segments[3]['coords'] == [[13, 13, 12], [18, 20, 19]]
     
@@ -430,6 +434,77 @@ def test_segment_count_update_on_done(widget):
     # Count should be updated
     assert segment['counts'] == 4
     assert segment['done'] == True
+
+
+@pytest.mark.segment_transfer
+def test_label_remapping_transfer(widget):
+    """Test that label remapping (42 → 1 → 42) works correctly in compare_and_transfer"""
+    # Setup: Simple 3D volume with segment at label 42
+    widget.labels = np.zeros((5, 5, 5), dtype=np.int32)
+    widget.labels[1:3, 1:3, 1:3] = 42  # Original segment with label 42
+    
+    widget.segPred = np.zeros((5, 5, 5), dtype=np.uint8)
+    widget.uncertainty = np.zeros((5, 5, 5), dtype=np.float32)
+    
+    segment = {
+        'name': 'Segment_42',
+        'label': 42,
+        'uncertainty': 0.8,
+        'coords': [[0, 0, 0], [5, 5, 5]]  # Cropped region
+    }
+    
+    # Simulate segment_data that was remapped to 1 (as zoom_in does)
+    # User added pixel at position [2, 3, 3] (disconnected from original)
+    segment_data = np.zeros((5, 5, 5), dtype=np.uint8)
+    segment_data[1:3, 1:3, 1:3] = 1  # Original segment (remapped to 1)
+    segment_data[2, 3, 3] = 1  # New disconnected pixel
+    
+    # Add the layer to the real viewer
+    widget.viewer.add_labels(segment_data, name='Segment_42')
+    
+    # Call compare_and_transfer
+    widget.compare_and_transfer(segment)
+    
+    # Verify the new pixel was transferred with ORIGINAL label (42)
+    assert widget.labels[2, 3, 3] == 42
+    
+    # Verify original segment pixels still have label 42
+    assert widget.labels[1, 1, 1] == 42
+    assert widget.labels[2, 2, 2] == 42
+
+
+@pytest.mark.segment_transfer  
+def test_non_continuous_segment_addition(widget):
+    """Test that disconnected segment additions work (user draws away from segment)"""
+    # Setup
+    widget.labels = np.zeros((5, 5, 5), dtype=np.int32)
+    widget.labels[1, 1, 1] = 100  # Small segment at label 100
+    
+    widget.segPred = np.zeros((5, 5, 5), dtype=np.uint8)
+    widget.uncertainty = np.zeros((5, 5, 5), dtype=np.float32)
+    
+    segment = {
+        'name': 'Segment_100',
+        'label': 100,
+        'uncertainty': 0.9,
+        'coords': [[0, 0, 0], [5, 5, 5]]
+    }
+    
+    # Simulated segment_data after user edits (remapped to 1)
+    # Original pixel + disconnected addition
+    segment_data = np.zeros((5, 5, 5), dtype=np.uint8)
+    segment_data[1, 1, 1] = 1  # Original pixel
+    segment_data[3, 3, 3] = 1  # Disconnected pixel added by user
+    
+    # Add the layer to the real viewer
+    widget.viewer.add_labels(segment_data, name='Segment_100')
+    
+    # Call compare_and_transfer
+    widget.compare_and_transfer(segment)
+    
+    # Both pixels should have the original label 100
+    assert widget.labels[1, 1, 1] == 100
+    assert widget.labels[3, 3, 3] == 100  # Disconnected pixel gets correct label
 
 
 @pytest.mark.segment_count
