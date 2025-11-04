@@ -731,11 +731,14 @@ class DataManager:
                 # Always load/calculate to get segment priorities
                 triplet.priority = self._calculate_priority_for_dataset(triplet)
             
-            # Sort by dataset-level metrics: uncertainty (descending), then voxel count (descending)
+            # Sort by dataset-level metrics: uncertainty (desc), voxel count (desc), then filename (asc)
+            # Python's sort is stable by default, so we can do two-pass sorting
+            # This ensures deterministic ordering for identical uncertainty+voxel_count
+            self.datasets.sort(key=lambda x: x.base_name)  # Alphabetical (A-Z)
             self.datasets.sort(key=lambda x: (
                 x.max_uncertainty_excluding_noise if x.max_uncertainty_excluding_noise is not None else -1,
                 x.voxel_count_at_max_uncertainty if x.voxel_count_at_max_uncertainty is not None else 0
-            ), reverse=True)
+            ), reverse=True)  # Stable sort preserves alphabetical order for ties
             
             # Create flat list of all segment priorities across all datasets
             print(f"\nDEBUG: Building flat segment list...")

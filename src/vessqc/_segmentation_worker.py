@@ -44,10 +44,18 @@ class NumpyEncoder(json.JSONEncoder):
 
 
 def _label_value_sparse(uncertainty, uncert, tolerance, structure, value_idx,
-    num_unique_uncert):
+    num_unique_uncert, cancel_event=None):
     """Worker function for parallel segmentation"""
+    # Check for cancellation before expensive operations
+    if cancel_event and cancel_event.is_set():
+        return None
+    
     mask = np.abs(uncertainty - uncert) < tolerance
     if not np.any(mask):
+        return None
+    
+    # Check again before labeling (expensive operation)
+    if cancel_event and cancel_event.is_set():
         return None
 
     labeled, num = ndimage.label(mask, structure)
@@ -99,6 +107,7 @@ class SegmentationWorker:
         self.callback = callback
         self._worker_thread: Optional[threading.Thread] = None
         self._queued_datasets: set = set()  # Track which datasets are queued
+        self.cancel_event = threading.Event()  # Shared cancellation flag for parallel jobs
         
     def start(self):
         """Start the background worker thread"""
@@ -117,8 +126,27 @@ class SegmentationWorker:
         print("Stopping segmentation worker...")
         self.should_stop = True
         self.is_running = False
-        # Add sentinel to unblock queue.get()
+        # Signal cancellation to parallel jobs
+        self.cancel_event.set()
+        # Clear the queue and add sentinel to unblock queue.get()
+        self.clear_queue()
         self.work_queue.put(None)
+    
+    def clear_queue(self):
+        """Clear all pending work items from the queue"""
+        print("Clearing segmentation queue...")
+        # Signal cancellation to current parallel jobs
+        self.cancel_event.set()
+        cleared_count = 0
+        while not self.work_queue.empty():
+            try:
+                self.work_queue.get_nowait()
+                cleared_count += 1
+            except queue.Empty:
+                break
+        self._queued_datasets.clear()
+        print(f"Cleared {cleared_count} items from queue")
+        return cleared_count
     
     def add_dataset(self, dataset_name: str, uncertainty_file: Path, 
                    segpred_file: Path, output_dir: Path):
@@ -172,6 +200,9 @@ class SegmentationWorker:
                 
                 dataset_name = work_item['dataset_name']
                 self.current_dataset = dataset_name
+                
+                # Clear cancellation flag for this dataset
+                self.cancel_event.clear()
                 
                 print(f"\n{'='*60}")
                 print(f"DEBUG: Processing segmentation for: {dataset_name}")
@@ -320,29 +351,36 @@ class SegmentationWorker:
         tolerance = 1e-3
         structure = np.ones((3, 3, 3), dtype=int)
         
-        # Parallel segmentation
-        print(f"DEBUG: Running parallel segmentation with {num_unique_uncert} jobs...")
+        # Parallel segmentation using threading backend for faster cleanup
+        print(f"DEBUG: Running parallel segmentation with {num_unique_uncert} jobs (threading backend)...")
         try:
-            results = Parallel(n_jobs=-1, verbose=0)(
+            results = Parallel(n_jobs=-1, backend='threading', verbose=0)(
                 delayed(_label_value_sparse)(
                     uncertainty, uncert, tolerance, structure, idx,
-                    num_unique_uncert
+                    num_unique_uncert, self.cancel_event
                 )
                 for idx, uncert in enumerate(unique_uncertainties)
             )
         except (RuntimeError, Exception) as e:
             # Handle shutdown errors gracefully
-            if "shutdown" in str(e).lower() or "interpreter" in str(e).lower():
-                print(f"DEBUG: Parallel processing interrupted by shutdown")
-                raise RuntimeError("Processing interrupted by shutdown")
+            error_str = str(e).lower()
+            if any(keyword in error_str for keyword in ["shutdown", "interpreter", "timeout", "terminated"]):
+                print(f"DEBUG: Parallel processing interrupted: {e}")
+                raise RuntimeError("Processing interrupted")
             raise
         
         # Assemble results
         print(f"DEBUG: Parallel processing complete, assembling results...")
-        labels = np.zeros_like(uncertainty, dtype=int)
-        uncert_values = {0: 0.0}
         non_null_results = sum(1 for r in results if r is not None)
         print(f"DEBUG: Got {non_null_results} non-null results out of {len(results)}")
+        
+        # Check if calculation was cancelled (most results are None due to early exit)
+        if non_null_results < len(results) * 0.1:  # Less than 10% completed
+            print(f"DEBUG: Segmentation appears to have been cancelled ({non_null_results}/{len(results)} completed)")
+            raise RuntimeError("Segmentation cancelled by user")
+        
+        labels = np.zeros_like(uncertainty, dtype=int)
+        uncert_values = {0: 0.0}
         
         for result in results:
             if result is None:

@@ -151,8 +151,20 @@ class LoadingDialog(QDialog):
         )
         
         if directory:
-            if self.data_manager.set_data_directory(Path(directory)):
+            # Check if directory actually changed
+            old_directory = self.data_manager.data_directory
+            new_directory = Path(directory)
+            directory_changed = (old_directory != new_directory)
+            
+            if self.data_manager.set_data_directory(new_directory):
                 self.dir_label.setText(f'Data Directory: {directory}')
+                
+                # Clear segmentation queue if directory changed
+                if directory_changed and self.parent() and hasattr(self.parent(), 'segmentation_worker'):
+                    print(f"DEBUG: Directory changed from {old_directory} to {new_directory}")
+                    print(f"DEBUG: Clearing segmentation queue...")
+                    self.parent().segmentation_worker.clear_queue()
+                
                 self._refresh_datasets()
                 # Queue unsegmented datasets for background processing
                 if self.parent() and hasattr(self.parent(), '_queue_unsegmented_datasets'):

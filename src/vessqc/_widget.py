@@ -56,12 +56,20 @@ if TYPE_CHECKING:
 
 
 def _label_value_sparse(uncertainty, uncert, tolerance, structure, value_idx,
-    num_unique_uncert):
+    num_unique_uncert, cancel_event=None):
     # Worker side
     # (03.07.2025)
+    
+    # Check for cancellation before expensive operations
+    if cancel_event and cancel_event.is_set():
+        return None
 
     mask = np.abs(uncertainty - uncert) < tolerance
     if not np.any(mask):
+        return None
+    
+    # Check again before labeling (expensive operation)
+    if cancel_event and cancel_event.is_set():
         return None
 
     labeled, num = ndimage.label(mask, structure)   # Segmentation
@@ -263,6 +271,13 @@ class VessQcWidget(QWidget):
         self.threshold_spinbox.valueChanged.connect(self._on_threshold_changed)
         threshold_layout.addWidget(self.threshold_spinbox)
         self.layout().addLayout(threshold_layout)
+        
+        # Top 5 segments quick access panel
+        self.top5_groupbox = QGroupBox('Top 5 Segments (by uncertainty)')
+        top5_layout = QVBoxLayout()
+        self.top5_groupbox.setLayout(top5_layout)
+        self.top5_groupbox.setVisible(False)  # Hidden until dataset loaded
+        self.layout().addWidget(self.top5_groupbox)
 
         btnPopupWindow = QPushButton('Show list of segments')
         btnPopupWindow.clicked.connect(self.show_popup_window)
@@ -299,14 +314,11 @@ class VessQcWidget(QWidget):
         """Handle widget close event"""
         print("DEBUG: Widget closeEvent triggered")
         
-        # Stop segmentation worker
+        # Stop segmentation worker (daemon thread will terminate with process)
         if hasattr(self, 'segmentation_worker'):
             print("DEBUG: Stopping segmentation worker...")
             self.segmentation_worker.stop()
-            # Give it a moment to stop gracefully
-            if self.segmentation_worker._worker_thread:
-                self.segmentation_worker._worker_thread.join(timeout=2.0)
-            print("DEBUG: Segmentation worker stopped")
+            print("DEBUG: Segmentation worker stop signal sent (daemon thread will terminate with process)")
         
         # Close loading dialog if open
         if self.loading_dialog:
@@ -326,9 +338,10 @@ class VessQcWidget(QWidget):
         """Handle viewer window destruction"""
         print("DEBUG: Viewer window destroyed, cleaning up...")
         
-        # Stop segmentation worker
+        # Stop segmentation worker (daemon thread will terminate with process)
         if hasattr(self, 'segmentation_worker'):
             self.segmentation_worker.stop()
+            print("DEBUG: Segmentation worker stop signal sent")
         
         # Close all child windows
         if self.loading_dialog:
@@ -518,7 +531,8 @@ class VessQcWidget(QWidget):
         
         print('Running parallel segmentation (this may take a while)...')
         # Note: Parallel processing blocks, but is much faster than sequential
-        results = Parallel(n_jobs=-1, verbose=5)(
+        # Using threading backend for faster cleanup when switching datasets
+        results = Parallel(n_jobs=-1, backend='threading', verbose=5)(
             delayed(_label_value_sparse)(
                 uncertainty, uncert, tolerance, structure, idx,
                 num_unique_uncert
@@ -558,6 +572,9 @@ class VessQcWidget(QWidget):
 
         print('Filtering small segments...')
         QApplication.processEvents()
+        
+        # Cache labels BEFORE any Noise grouping for threshold filtering
+        self.original_labels = self.labels.copy()
         
         # Determine all labels that appear less than 200 times
         min_size = 200
@@ -625,6 +642,12 @@ class VessQcWidget(QWidget):
         for seg in self.segments[:5]:
             print(f"  {seg['name']} (label: {seg['label']})")
         
+        # Cache original_segments (excluding Noise) for threshold filtering
+        self.original_segments = [s for s in self.segments if not self._is_small_segment(s)]
+        
+        # Remember the Noise label from original segmentation
+        self._original_noise_label = max_label
+        
         # Process events to keep UI responsive
         QApplication.processEvents()
 
@@ -632,6 +655,9 @@ class VessQcWidget(QWidget):
         print('Adding segmentation layer to viewer...')
         self.viewer.add_labels(self.labels, name='Segmentation')
         print('Segmentation complete!')
+        
+        # Update top 5 panel after segmentation
+        self._update_top5_panel()
 
     def _is_small_segment(self, segment):
         """Check if a segment is the small segments collection"""
@@ -1022,11 +1048,12 @@ class VessQcWidget(QWidget):
         self.viewer.add_labels(self.segPred, name=self.stem2)
         self.viewer.add_labels(self.labels, name='Segmentation')
 
-        # Update popup window content instead of recreating
+        # Update popup window if it was open
         if self.popup_window and self.popup_window.isVisible():
             self._update_popup_window_content()
-        else:
-            self.show_popup_window()
+        
+        # Update top 5 panel after marking segment as done
+        self._update_top5_panel()
 
     def restore(self, segment: dict):
         """ Restore the data of a specific area in the pop-up window """
@@ -1039,6 +1066,9 @@ class VessQcWidget(QWidget):
             self._update_popup_window_content()
         else:
             self.show_popup_window()
+        
+        # Update top 5 panel after restoring segment
+        self._update_top5_panel()
 
     def compare_and_transfer(self, segment: dict):
         """
@@ -1540,8 +1570,14 @@ class VessQcWidget(QWidget):
                                     seg['name'] = f"Segment_{seg['label']}"
                         
                         # Cache original for threshold filtering
+                        # Keep Noise label in labels so voxels aren't lost
                         self.original_labels = self.labels.copy()
-                        self.original_segments = copy.deepcopy(self.segments)
+                        
+                        # Cache segments excluding Noise (will be recreated on threshold change)
+                        self.original_segments = [s for s in self.segments if s.get('label') != max_label]
+                        
+                        # Remember the original Noise label for filtering
+                        self._original_noise_label = max_label
                         
                         # Display the segmentation layer
                         self.viewer.add_labels(self.labels, name='Segmentation')
@@ -1561,6 +1597,9 @@ class VessQcWidget(QWidget):
                 print(f"DEBUG: No precomputed segmentation, calculating for {triplet.base_name}")
                 self.find_segments(self.uncertainty)
                 print(f"✓ Loaded dataset: {triplet.base_name}")
+            
+            # Update top 5 panel after loading
+            self._update_top5_panel()
             
         except Exception as error:
             QMessageBox.warning(self, 'Error loading dataset', str(error))
@@ -1595,22 +1634,37 @@ class VessQcWidget(QWidget):
         self.labels = self.original_labels.copy()
         self.segments = copy.deepcopy(self.original_segments)
         
-        # Apply new threshold
+        # Find old Noise label and treat it as background for regrouping
+        old_noise_label = getattr(self, '_original_noise_label', None)
+        if old_noise_label is not None:
+            # Temporarily set old Noise voxels to 0 so they can be regrouped
+            old_noise_mask = self.labels == old_noise_label
+            self.labels[old_noise_mask] = 0
+        
+        # Apply new threshold to find small segments
         counts = np.bincount(self.labels.ravel())
         small_labels = np.where(counts < min_size)[0]
         small_labels = small_labels[small_labels != 0]
+        print(f'DEBUG: Found {len(small_labels)} small segments with threshold {min_size}')
         
-        # Replace small labels
+        # If there were old Noise voxels, they should all go into new Noise
+        # (they're currently 0, so not counted as small_labels)
+        # Add them to the new Noise group
+        
+        # Replace small labels with new Noise label
         max_label = np.max(self.labels) + 1
+        # Group both new small segments AND old Noise voxels
         mask = np.isin(self.labels, small_labels)
+        if old_noise_label is not None:
+            mask = mask | old_noise_mask  # Include old Noise voxels
         self.labels[mask] = max_label
         
-        # Update segments list
+        # Update segments list (exclude old Noise)
         unique_labels = np.unique(self.labels)
         unique_labels = unique_labels[unique_labels != 0]
         counts = np.bincount(self.labels.ravel())
         
-        # Filter segments
+        # Filter segments and update counts
         filtered_segments = []
         for segment in self.segments:
             label = segment['label']
@@ -1656,6 +1710,9 @@ class VessQcWidget(QWidget):
         if self.popup_window and self.popup_window.isVisible():
             print(f'DEBUG: Refreshing popup window after threshold change')
             self._refresh_popup_window()
+        
+        # Update top 5 panel after threshold change
+        self._update_top5_panel()
     
     def _save_image_layer_settings(self):
         """Save current image layer settings (contrast, gamma) for later restoration"""
@@ -1700,6 +1757,74 @@ class VessQcWidget(QWidget):
         # (07.10.2025)
         # Automatically save the new settings
         self._save_image_layer_settings()
+    
+    def _update_top5_panel(self):
+        """Update the top 5 segments quick access panel"""
+        # (29.10.2025)
+        if not hasattr(self, 'top5_groupbox'):
+            return
+        
+        # Clear existing widgets immediately
+        layout = self.top5_groupbox.layout()
+        # Remove all items from layout
+        items_to_remove = []
+        while layout.count():
+            items_to_remove.append(layout.takeAt(0))
+        
+        # Delete widgets and nested layouts
+        for item in items_to_remove:
+            if item.widget():
+                widget = item.widget()
+                widget.setParent(None)
+                widget.deleteLater()
+            elif item.layout():
+                # Clear nested layout
+                sublayout = item.layout()
+                while sublayout.count():
+                    subitem = sublayout.takeAt(0)
+                    if subitem.widget():
+                        subwidget = subitem.widget()
+                        subwidget.setParent(None)
+                        subwidget.deleteLater()
+                sublayout.deleteLater()
+        
+        # Process events to ensure widgets are removed before adding new ones
+        QApplication.processEvents()
+        
+        # Get top 5 undone segments (excluding Noise)
+        undone_segments = [s for s in self.segments if not s['done'] and not self._is_small_segment(s)]
+        # Sort by uncertainty descending (highest first)
+        undone_segments_sorted = sorted(undone_segments, key=lambda x: x['uncertainty'], reverse=True)
+        top5 = undone_segments_sorted[:5]
+        
+        if len(top5) == 0:
+            self.top5_groupbox.setVisible(False)
+            return
+        
+        self.top5_groupbox.setVisible(True)
+        
+        # Add each segment with buttons
+        for segment in top5:
+            row_layout = QHBoxLayout()
+            
+            # Segment info label
+            info_label = QLabel(f"{segment['name']} ({segment['uncertainty']:.3f})")
+            info_label.setMinimumWidth(150)
+            row_layout.addWidget(info_label)
+            
+            # Zoom button
+            btn_zoom = QPushButton('View')
+            btn_zoom.setMaximumWidth(50)
+            btn_zoom.clicked.connect(lambda checked, s=segment: self.zoom_in(s, 0.75))
+            row_layout.addWidget(btn_zoom)
+            
+            # Done button
+            btn_done = QPushButton('Done')
+            btn_done.setMaximumWidth(50)
+            btn_done.clicked.connect(lambda checked, s=segment: self.done(s))
+            row_layout.addWidget(btn_done)
+            
+            layout.addLayout(row_layout)
     
     def _toggle_neighbors_visibility(self, state):
         """Toggle visibility of neighboring segments layer and update focus"""
