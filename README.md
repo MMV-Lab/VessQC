@@ -17,17 +17,16 @@ This [napari] plugin was generated using [Cookiecutter] and the [@napari] [cooki
 
 ## Table of Contents
 
-1. [Overview](#VessQC:-Uncertainty-Guided-Curation-for-3DSegmentation)
+1. [Overview](#vessqc-uncertainty-guided-curation-for-3d-segmentation)
 2. [Input Data Requirements](#input-data-requirements)
 3. [File Naming Conventions](#file-naming-conventions)
 4. [Launching the Application](#launching-VessQC)
 5. [Curation Workflow](#curation-workflow)
 6. [Save Behavior](#save-behavior)
-7. [Related Repositories](#related-repositories)
-8. [Citation](#citation)
-9. [Contributing](#contributing)
-10. [License](#license)
-11. [Issues](#issues)
+7. [Citation](#citation)
+8. [Contributing](#contributing)
+9. [License](#license)
+10. [Issues](#issues)
 
 ---
 
@@ -104,9 +103,6 @@ VessQC offers two save modes to manage the progress and finalization of curated 
 * The moved items are removed from the main directory, ensuring they no longer appear in the list of available images during subsequent sessions.
 
 * This two-tier saving mechanism supports both iterative refinement and systematic completion tracking during large-scale curation projects.
-
-## Related Repositories
-- VessQC-Supplementary: Repository containing the segmentation models and scripts required to generate the pixel-wise and topology-aware uncertainty maps needed as input for VessQC.
 
 ## Citation
 If you use the VessQC tool or the methodologies, please cite the corresponding paper:
