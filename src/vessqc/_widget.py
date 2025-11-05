@@ -12,6 +12,7 @@ ExampleQWidget
 import copy
 from joblib import Parallel, delayed
 import json
+from .multiple_viewer_widget import MultipleViewerWidget, CrossWidget
 import numpy as np
 import napari
 from pathlib import Path
@@ -132,7 +133,6 @@ class ExampleQWidget(QWidget):
 
         # Define the layout of the main widget
         layout = QVBoxLayout()
-        self.setLayout(layout)
 
         # Define some labels and buttons
         label1 = QLabel('Vessel quality check')
@@ -190,8 +190,15 @@ class ExampleQWidget(QWidget):
         cbxSaveUncertainty.stateChanged.connect(self.checkbox_save_uncertainty)
         layout.addWidget(cbxSaveUncertainty)
 
-        #self.triple_view = TripleViewWidget()
-        #layout.addWidget(self.triple_view)
+        # Insert the Napari “Multiple Viewer Widget”
+        self.multiple_view = MultipleViewerWidget(self.viewer)
+        layout.addWidget(self.multiple_view)
+
+        # Add the cross widget (on the left in the viewer area)
+        self.cross_widget = CrossWidget(self.viewer)
+        layout.addWidget(self.cross_widget)
+
+        self.setLayout(layout)
 
     def load_image(self):
         """

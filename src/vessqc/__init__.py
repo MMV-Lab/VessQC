@@ -1,6 +1,6 @@
 __version__ = "0.8.0"
 
-from .example_widget import ExampleQWidget
+from ._widget import ExampleQWidget
 
 __all__ = (
     "ExampleQWidget",
