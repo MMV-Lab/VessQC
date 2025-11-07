@@ -30,7 +30,6 @@ from superqt.utils import qthrottled
 import napari
 from napari.components.viewer_model import ViewerModel
 from napari.layers import Labels, Layer, Vectors
-from napari.layers import Shapes
 from napari.qt import QtViewer
 from napari.utils.action_manager import action_manager
 from napari.utils.events.event import WarningEmitter
@@ -172,14 +171,12 @@ class CrossWidget(QCheckBox):
         self._extent = self.viewer.layers.get_extent(layers)
         self.update_cross()
 
-    """
     def _update_ndim(self, event):
         if self.layer in self.viewer.layers:
             self.viewer.layers.remove(self.layer)
         self.layer = Vectors(name='.cross', ndim=event.value)
-        self.layer.edge_width = 2.0
-        # ensures constant screen width (in pixels)
-        self.layer.edge_width_is_relative = False
+        self.layer.edge_width = 1.5
+        self.layer.vector_style = 'line'    # <- new line
         self.update_cross()
 
     def _update_cross_visibility(self, state):
@@ -208,62 +205,6 @@ class CrossWidget(QCheckBox):
         if np.any(self.layer.scale != self._extent.step):
             self.layer.scale = self._extent.step
         self.layer.data = vec
-    """
-
-    def _update_ndim(self, event):
-        # Entferne alte Layer (wie zuvor)
-        if self.layer in self.viewer.layers:
-            self.viewer.layers.remove(self.layer)
-        # Erzeuge jetzt eine Shapes-Layer mit shape_type='line'
-        # Shapes verwendet Bildschirm-Pixel für edge_width, daher konsistente Breite
-        self.layer = Shapes(data=[], name='.cross', shape_type='line', ndim=event.value)
-        # feste Strichdicke in Pixeln
-        self.layer.edge_width = 5.0
-        self.update_cross()
-
-    def _update_cross_visibility(self, state):
-        if state:
-            # Shapes-Layer hinzufügen (falls noch nicht vorhanden)
-            if self.layer not in self.viewer.layers:
-                self.viewer.layers.append(self.layer)
-        else:
-            if self.layer in self.viewer.layers:
-                self.viewer.layers.remove(self.layer)
-        self.update_cross()
-
-    def update_cross(self):
-        # Wenn Layer nicht aktiv, nichts tun
-        if self.layer not in self.viewer.layers:
-            return
-
-        point = np.asarray(self.viewer.dims.current_step, dtype=float)
-        lines = []
-        # self._extent.world is used im Original; wir behalten die Logik, nur die Ausgabe ändern
-        for i, (lower, upper) in enumerate(self._extent.world.T):
-            # überspringe 1-pixel-dimensionen (wie im Original)
-            if (upper - lower) / self._extent.step[i] == 1:
-                continue
-
-            # Startpunkt in Datenkoordinaten (zentriert auf Gitter)
-            start = point.copy()
-            start[i] = (lower + self._extent.step[i] / 2) / self._extent.step[i]
-
-            # Endpunkt: vom Start aus in Richtung i bis zum oberen Ende
-            end = start.copy()
-            end[i] = (upper - lower) / self._extent.step[i]
-
-            # Wenn du eine Linie in beide Richtungen willst (links+rechts), 
-            # erstelle alternativ start_neg = start.copy(); start_neg[i] = 0 und end_neg = start
-            # hier bleibt die ursprüngliche Richtung erhalten, aber die Shapes-Layer
-            # wird die Linien einheitlich mit edge_width zeichnen.
-            lines.append([start, end])
-
-        # Shapes erwartet ein array mit Form (N, 2, ndim)
-        if len(lines) > 0:
-            self.layer.data = np.array(lines)
-        else:
-            # leere Liste wenn keine Linien
-            self.layer.data = []
 
 
 class ExampleWidget(QWidget):

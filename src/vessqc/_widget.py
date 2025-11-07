@@ -37,7 +37,6 @@ import tempfile
 from tifffile import imread, imwrite
 import time
 from typing import TYPE_CHECKING
-#from .triple_view_widget import TripleViewWidget
 
 if TYPE_CHECKING:
     import napari
@@ -191,13 +190,13 @@ class ExampleQWidget(QWidget):
         layout.addWidget(cbxSaveUncertainty)
 
         # Insert the Napari “Multiple Viewer Widget”
-        self.multiple_view = MultipleViewerWidget(self.viewer)
-        layout.addWidget(self.multiple_view)
+        self.multi_viewer = MultipleViewerWidget(self.viewer)
+        layout.addWidget(self.multi_viewer)
 
         # Add the cross widget (on the left in the viewer area)
         self.cross_widget = CrossWidget(self.viewer)
         layout.addWidget(self.cross_widget)
-
+        
         self.setLayout(layout)
 
     def load_image(self):
