@@ -7,28 +7,27 @@
 [![codecov](https://codecov.io/gh/MMV-Lab/VessQC/branch/main/graph/badge.svg)](https://codecov.io/gh/MMV-Lab/VessQC)
 [![napari hub](https://img.shields.io/endpoint?url=https://api.napari-hub.org/shields/VessQC)](https://napari-hub.org/plugins/VessQC)
 
+<!-- 2.1 [File Naming Conventions](#file-naming-conventions)--->
+<!-- 2.2 [Generating Uncertainty Maps](#generating-uncertainty-maps)--->
+## Table of Contents
+
+1. [Overview](#Overview)
+2. [Input Data Requirements](#input-data-requirements)
+3. [Launching the Application](#launching-VessQC)
+4. [Curation Workflow](#curation-workflow)
+5. [Save Behavior](#save-behavior)
+6. [Citation](#citation)
+7. [Contributing](#contributing)
+8. [License](#license)
+9. [Issues](#issues)
+
+## Overview
+Overview
 This repository provides the implementation of **VessQC**, introduced in the manuscript *"Bridging 3D Deep Learning and Uncertainty-Guided Curation for Analysis and High-Quality Segmentation Ground Truth"*, submitted to **ISBI 2026**.
 
 **VessQC** is an open-source, human-in-the-loop tool for efficient, uncertainty-guided curation of large 3D volumetric segmentations, with a particular emphasis on complex vascular structures. By leveraging e.g. pixel-wise or topology-aware uncertainty estimation, VessQC prioritizes regions most likely to contain segmentation errors, thereby significantly improving error recall and reducing manual effort.
 
 This [napari] plugin was generated using [Cookiecutter] and the [@napari] [cookiecutter-napari-plugin] template.
-
----
-
-## Table of Contents
-
-1. [Overview](#vessqc-uncertainty-guided-curation-for-3d-segmentation)
-2. [Input Data Requirements](#input-data-requirements)
-3. [File Naming Conventions](#file-naming-conventions)
-4. [Launching the Application](#launching-VessQC)
-5. [Curation Workflow](#curation-workflow)
-6. [Save Behavior](#save-behavior)
-7. [Citation](#citation)
-8. [Contributing](#contributing)
-9. [License](#license)
-10. [Issues](#issues)
-
----
 
 ## Input Data Requirements
 
@@ -42,7 +41,7 @@ VessQC requires three core input files per volume, all of which must be perfectl
 
 VessQC automatically detects corresponding files based on naming patterns. Each file type must follow the conventions below:
 
-| File Type           | Required Suffix   | Example Filename             |
+| File Type           | Required Suffix   | Example Filename            |
 |---------------------|------------------|------------------------------|
 | Raw Image Volume    | `_IM`            | `sample01_IM.tiff`           |
 | Segmentation Mask   | `_segPred`       | `sample01_segPred.tiff`      |
@@ -57,9 +56,16 @@ Uncertainty maps can be generated using models provided in our supplementary rep
 
 This repository includes both **pixel-wise** and **topology-aware** uncertainty pipelines. Please follow its documentation to produce the required uncertainty maps before running VessQC.
 
----
+## Installation and Launch
 
-## Launching VessQC
+**VessQC** is a plugin that runs within the, open-source image viewer, **napari**. Please follow the steps below to install both napari and the VessQC plugin.
+
+### 1. Install napari (The Host Application)
+
+VessQC requires a working installation of **napari** (Python 3.10-3.13 recommended). For the latest and most detailed instructions, always refer to the official [napari installation guide](https://napari.org/dev/tutorials/fundamentals/quick_start.html).
+
+
+
 
 You can install **VessQC** via [pip]:
 
@@ -82,7 +88,7 @@ The typical workflow involves loading the three required files and then iteratin
 
 2. **Navigate to High-Uncertainty segments:**  VessQC shows a **ranked list of segmented branches** sorted by their associated uncertainty scores and allows direct **selection of a branch** from the list to automatically crop the area and center to that location
 
-3. **Review and Edit:** Examine the 3D and 2D views at the high-uncertainty location. If an error is identified, use the provided annotation tools to correct the segmentation mask.
+3. **Review and Edit:** Examine the 3D and 2D views at the high-uncertainty location. If an error is identified, use the provided annotation tools to correct the segmentation mask in the 2D viewer.
 
 4. **Iterate:** Continue navigating to the next highest uncertain location and repeat the review and edit process.
 
@@ -90,7 +96,6 @@ The typical workflow involves loading the three required files and then iteratin
 
 ## Save Behavior
 VessQC offers two save modes to manage the progress and finalization of curated segmentations:
-
 
 ### 1. Temporary Save
 * The folder structure remains unchanged.
