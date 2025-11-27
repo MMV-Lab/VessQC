@@ -13,7 +13,7 @@
 
 1. [Overview](#Overview)
 2. [Input Data Requirements](#input-data-requirements)
-3. [Launching the Application](#launching-VessQC)
+3. [Installation and Launch](#installation-and-launch)
 4. [Curation Workflow](#curation-workflow)
 5. [Save Behavior](#save-behavior)
 6. [Citation](#citation)
@@ -31,7 +31,7 @@ This [napari] plugin was generated using [Cookiecutter] and the [@napari] [cooki
 
 ## Input Data Requirements
 
-VessQC requires three core input files per volume, all of which must be perfectly aligned and of identical spatial dimensions (e.g., `.tiff` or `.nii` format):
+VessQC requires three core input files per volume, all of which must be perfectly aligned and of identical spatial dimensions. Supported file formats include `.tiff` and `.nii` and all related variants (e.g., `.ome.tif`, `.tif`, `.nii.gz`).
 
 1. **Raw Image Volume:** The original 3D image data (e.g., lightsheet microscopy stack).  
 2. **Segmentation Mask:** A binary segmentation mask of the target structures.  
@@ -60,14 +60,37 @@ This repository includes both **pixel-wise** and **topology-aware** uncertainty 
 
 **VessQC** is a plugin that runs within the, open-source image viewer, **napari**. Please follow the steps below to install both napari and the VessQC plugin.
 
-### 1. Install napari (The Host Application)
+### 1. Install napari
 
 VessQC requires a working installation of **napari** (Python 3.10-3.13 recommended). For the latest and most detailed instructions, always refer to the official [napari installation guide](https://napari.org/dev/tutorials/fundamentals/quick_start.html).
 
+#### Option A: Python/pip Installation
 
+If you are familiar with Python environments, you can install napari via pip inside a clean virtual environment:
 
+1. **Create a virtual environment:**
+    ```bash
+    conda create -y -n napari-env -c conda-forge python=3.11
+    conda activate napari-env
+    ```
+2. **Install napari:**
+    ```bash
+    python -m pip install 'napari[all]'
+    ```
 
-You can install **VessQC** via [pip]:
+#### Option B: Bundled App
+
+For a simple installation without managing Python environments, download the bundled application for your operating system (e.g., version 0.6.7):
+* **Linux:** `napari-0.6.7-Linux-x86_64.sh`
+* **macOS (Intel):** `napari-0.6.7-macOS-x86_64.pkg`
+* **macOS (Apple Silicon):** `napari-0.6.7-macOS-arm64.pkg`
+* **Windows:** `napari-0.6.7-Windows-x86_64.exe`
+
+Other artifacts can be found on the [napari Releases page](https://github.com/napari/napari/releases).
+
+### 2. Install VessQC
+
+Once napari is installed and your environment is active (for Option A), you can install **VessQC** via [pip]:
 
 ```bash
 pip install VessQC
@@ -78,6 +101,7 @@ Or install the latest development version directly from GitHub:
 ```bash
 pip install git+https://github.com/MMV-Lab/VessQC.git
 ```
+
 Once installation is complete, launch [napari] and start VessQC through the Plugins menu.
 
 ## Curation Workflow
@@ -99,8 +123,8 @@ VessQC offers two save modes to manage the progress and finalization of curated 
 
 ### 1. Temporary Save
 * The folder structure remains unchanged.
-* Newly curated files are saved with the suffix ```_new```. Example: ```sample01_segPred_new.tiff```
-* When the same dataset is reloaded, VessQC automatically prioritizes the ```_new```version for continued editing.
+* Newly curated files are saved with the suffix ```_temp```. Example: ```sample01_segPred_temp.tiff```
+* When the same dataset is reloaded, VessQC automatically prioritizes the ```_temp```version for continued editing.
 
 ### 2. Final Save
 * The finalized image, segmentation, uncertainty map, and curated segmentation are moved to a new ```done/``` subdirectory.
