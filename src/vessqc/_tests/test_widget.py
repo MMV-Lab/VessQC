@@ -4,6 +4,7 @@
 import builtins
 import json
 import napari
+from ..multiple_viewer_widget import MultipleViewerWidget, CrossWidget
 import numpy as np
 from pathlib import Path
 import pytest
@@ -11,12 +12,14 @@ import qtpy
 from qtpy.QtTest import QTest
 from qtpy.QtCore import QSize, Qt
 from qtpy.QtWidgets import (
+    QCheckBox,
     QGridLayout,
     QGroupBox,
     QLabel,
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSplitter,
     QVBoxLayout,
     QWidget,
     QWidgetItem,
@@ -25,6 +28,11 @@ import tempfile
 from tifffile import imread, imwrite
 from unittest import mock
 from vessqc import ExampleQWidget
+
+# Constants with the _data path and the TEMP directory
+DATA = Path(__file__).parent / '_data'
+tmp  = tempfile.gettempdir()
+TEMP = Path(tmp)
 
 def normalize_for_json(data):
     # Suggestion from ChatGPT
@@ -42,21 +50,36 @@ def normalize_for_json(data):
     else:
         return data
 
-# Constants with the _data path and the TEMP directory
-DATA = Path(__file__).parent / '_data'
-tmp  = tempfile.gettempdir()
-TEMP = Path(tmp)
-
 # make_napari_viewer is a pytest fixture that returns a napari viewer object
 # you don't need to import it, as long as napari is installed in your
 # testing environment
+
+# NOTE:
+# Napari 0.5.x emits a spurious "Widgets leaked" warning due to an
+# internal generator in make_napari_viewer.
+# This is filtered in pytest.ini on purpose.
 @pytest.fixture
 def widget(make_napari_viewer, qtbot):
-    # Create an Object of class ExampleQWidget
+    # Create an object of class ExampleQWidget
     # (12.09.2024)
-    my_widget = ExampleQWidget(make_napari_viewer())
-    qtbot.addWidget(my_widget)          # Fixture from pytest-qt
-    return my_widget
+    napari_viewer = make_napari_viewer(strict_qt=True)
+    example_widget = ExampleQWidget(napari_viewer)
+    dock_widget = example_widget.dock_widget
+    qtbot.addWidget(example_widget)         # Fixture from pytest-qt
+
+    yield example_widget
+
+    example_widget.setParent(None)
+    example_widget.deleteLater()
+    napari_viewer.close()
+
+    try:
+        del dock_widget.viewer_model1
+        del dock_widget.viewer_model2
+        del example_widget.dock_widget
+        del example_widget.cross
+    except Exception:
+        pass
 
 # define fixtures for the image data
 @pytest.fixture
@@ -133,6 +156,10 @@ def test_init(widget):
     assert isinstance(widget.viewer, napari.Viewer)
     assert isinstance(widget.layout(), QVBoxLayout)
     assert isinstance(widget.segments, list)
+    assert isinstance(widget.dock_widget, QSplitter)    # Base class
+    assert isinstance(widget.dock_widget, MultipleViewerWidget)
+    assert isinstance(widget.cross, QCheckBox)          # Base class
+    assert isinstance(widget.cross, CrossWidget)
     assert widget.save_uncertainty == False
 
 
@@ -315,7 +342,7 @@ def test_done(widget, image, segPred, segPredNew, uncertainty, uncertaintyNew,
     # Call the function done(segment)
     with mock.patch("qtpy.QtWidgets.QWidget.show") as mock_show:
         widget.done(segment)
-        assert mock_show.call_count == 2
+        assert mock_show.call_count == 6    # <== assert 6 == 2
 
     # the data in widget.segPred and widget.labels should have been changed
     # by the function compare_and_transfer()

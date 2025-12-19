@@ -131,7 +131,7 @@ class ExampleQWidget(QWidget):
         self.save_uncertainty = False
 
         # Define the layout of the main widget
-        layout = QVBoxLayout()
+        layout = QVBoxLayout(self)
 
         # Define some labels and buttons
         label1 = QLabel('Vessel quality check')
@@ -190,13 +190,15 @@ class ExampleQWidget(QWidget):
         layout.addWidget(cbxSaveUncertainty)
 
         # Insert the Napari “Multiple Viewer Widget”
-        self.multi_viewer = MultipleViewerWidget(self.viewer)
-        layout.addWidget(self.multi_viewer)
+        self.dock_widget = MultipleViewerWidget(self.viewer, parent=self)
+        # layout.addWidget(self.dock_widget)
+        self.viewer.window.add_dock_widget(self.dock_widget, name='Sample')
 
         # Add the cross widget (on the left in the viewer area)
-        self.cross_widget = CrossWidget(self.viewer)
-        layout.addWidget(self.cross_widget)
-        
+        self.cross = CrossWidget(self.viewer, parent=self)
+        # layout.addWidget(self.cross)
+        self.viewer.window.add_dock_widget(self.cross, name='Cross', area='left')
+
         self.setLayout(layout)
 
     def load_image(self):

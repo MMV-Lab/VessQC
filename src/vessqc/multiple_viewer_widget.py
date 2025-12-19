@@ -35,7 +35,6 @@ from napari.utils.action_manager import action_manager
 from napari.utils.events.event import WarningEmitter
 from napari.utils.notifications import show_info
 
-
 def copy_layer(layer: Layer, name: str = ''):
     res_layer = Layer.create(*layer.as_layer_data_tuple())
     res_layer.metadata['viewer_name'] = name
@@ -142,8 +141,10 @@ class CrossWidget(QCheckBox):
     the update of cross is throttled
     """
 
-    def __init__(self, viewer: napari.Viewer) -> None:
-        super().__init__('Add cross layer')
+    # def __init__(self, viewer: napari.Viewer) -> None:
+        # super().__init__('Add cross layer')
+    def __init__(self, viewer: napari.Viewer, parent=None) -> None:
+        super().__init__('Add cross layer', parent=parent)
         self.viewer = viewer
         self.setChecked(False)
         self.stateChanged.connect(self._update_cross_visibility)
@@ -176,7 +177,7 @@ class CrossWidget(QCheckBox):
             self.viewer.layers.remove(self.layer)
         self.layer = Vectors(name='.cross', ndim=event.value)
         self.layer.edge_width = 1.5
-        self.layer.vector_style = 'line'    # <- new line
+        self.layer.vector_style = 'line'    # new line
         self.update_cross()
 
     def _update_cross_visibility(self, state):
@@ -207,47 +208,27 @@ class CrossWidget(QCheckBox):
         self.layer.data = vec
 
 
-class ExampleWidget(QWidget):
-    """
-    Example widget showcasing how to place additional widgets to the right
-    of the additional viewers.
-    """
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.btn = QPushButton('Perform action')
-        self.spin = QDoubleSpinBox()
-        layout = QVBoxLayout()
-        layout.addWidget(self.spin)
-        layout.addWidget(self.btn)
-        layout.addStretch(1)
-        self.setLayout(layout)
-
-
 class MultipleViewerWidget(QSplitter):
     """The main widget of the example."""
 
-    def __init__(self, viewer: napari.Viewer) -> None:
-        super().__init__()
+    # def __init__(self, viewer: napari.Viewer) -> None:
+        # super().__init__()
+    def __init__(self, viewer: napari.Viewer, parent=None) -> None:
+        super().__init__(parent)
         self.viewer = viewer
         self.viewer_model1 = ViewerModel(title='model1')
         self.viewer_model2 = ViewerModel(title='model2')
         self._block = False
         self.qt_viewer1 = QtViewerWrap(viewer, self.viewer_model1)
         self.qt_viewer2 = QtViewerWrap(viewer, self.viewer_model2)
-        # self.tab_widget = QTabWidget()
-        # w1 = ExampleWidget()
-        # w2 = ExampleWidget()
-        # self.tab_widget.addTab(w1, 'Sample 1')
-        # self.tab_widget.addTab(w2, 'Sample 2')
-        viewer_splitter = QSplitter()
+        # viewer_splitter = QSplitter()
+        viewer_splitter = QSplitter(self)
         viewer_splitter.setOrientation(Qt.Orientation.Vertical)
         viewer_splitter.addWidget(self.qt_viewer1)
         viewer_splitter.addWidget(self.qt_viewer2)
         viewer_splitter.setContentsMargins(0, 0, 0, 0)
 
         self.addWidget(viewer_splitter)
-        # self.addWidget(self.tab_widget)
 
         self.viewer.layers.events.inserted.connect(self._layer_added)
         self.viewer.layers.events.removed.connect(self._layer_removed)
@@ -262,6 +243,14 @@ class MultipleViewerWidget(QSplitter):
         self.viewer.events.reset_view.connect(self._reset_view)
         self.viewer_model1.events.status.connect(self._status_update)
         self.viewer_model2.events.status.connect(self._status_update)
+
+        """ Lennarts Methode
+        def temp():
+            QtViewer._instances.clear()
+            #raise NotImplementedError(f"Instances: {QtViewer._instances}")
+
+        self.viewer.window._qt_window.destroyed.connect(temp)   # new line
+        """
 
     def _status_update(self, event):
         self.viewer.status = event.value
