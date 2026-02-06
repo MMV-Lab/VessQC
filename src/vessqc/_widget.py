@@ -1,9 +1,23 @@
 """
-Module for the definition of the class ExampleQWidget
+_widget.py
+==========
 
-Exports
+This module contains a Napari plugin that can be used to check and correct
+3D views of blood vessels.
+
+Functions
+---------
+_label_value_sparse
+    Segments contiguous voxels with similar uncertainty and assigns them
+    unique global labels.
+jsonify
+    The function converts Python data types into a form that can be saved
+    as a JSON file.
+
+Classes
 -------
 ExampleQWidget
+    Class for displaying and correcting a 3D image of blood vessels.
 """
 
 # Copyright © Peter Lampen, ISAS Dortmund, 2024
@@ -44,6 +58,43 @@ if TYPE_CHECKING:
 
 def _label_value_sparse(uncertainty, uncert, tolerance, structure, value_idx,
     num_unique_uncert):
+    """
+    Segments contiguous voxels with similar uncertainty and assigns them
+    unique global labels.
+
+    Parameters
+    ----------
+    uncertainty : np.ndarray
+        3D array with information on the uncertainty of the calculated
+        data points
+    uncert : float
+        Single uncertainty value
+    tolerance : float
+        Tolerance when comparing uncertainty values (1e-2)
+    structure : np.ndarray
+        Connectivity array: np.ones((3, 3, 3), dtype=int)
+    value_idx : int
+        Index value
+    num_unique_uncert : int
+        Number of unique uncertainty values
+
+    Returns
+    -------
+    dict or None
+        Dictionary with the keys:
+
+???->        - indices : tuple of np.ndarray
+            Indices of voxels belonging to the segment
+        - global_labels : np.ndarray
+            Global label values at the given indices
+        - uncert : float
+            Uncertainty value of the segment
+        - num : int
+            Number of connected components
+
+        Returns None if no voxels match the criteria.
+    """
+
     # Worker side
     # (03.07.2025)
 
@@ -71,6 +122,22 @@ def _label_value_sparse(uncertainty, uncert, tolerance, structure, value_idx,
     return result
 
 def jsonify(obj):
+    """
+    The function converts Python data types into a form that can be saved
+    as a JSON file.
+
+    Parameters
+    ----------
+    obj
+        Data object of type np.integer, np.floating, np.ndarray, tuple,
+        dict, or list
+
+    Returns
+    -------
+    object
+        JSON-serializable representation of the input object.
+    """
+
     if isinstance(obj, np.ndarray):
         return obj.tolist()
     if isinstance(obj, (np.integer, np.floating)):
@@ -86,30 +153,40 @@ def jsonify(obj):
 
 class ExampleQWidget(QWidget):
     """
-    Main widget of a Napari plugin for checking the calculation of blood vessels
+    Class for displaying and correcting a 3D image of blood vessels.
+
+    Parameters
+    ----------
+    napari_viewer : napari.viewer.Viewer
 
     Attributes
     ----------
-    viewer : class napari.viewer
+    viewer : class napari.viewer.Viewer
         Napari viewer
-    start_multiple_viewer : bool
-        Call the multiple viewer and the cross widget?
+    segments : list of dict
+        Segment metadata dictionaries
     save_uncertainty : bool
         Save the file 'Uncertainty.tif'?
-    areas : dict
-        Contains information about the various areas
+    dock_widget : MultipleViewerWidget
+        MultipleViewerWidget from multiple_viewer_widget.py
+    cross : QCheckBox
+        Widget for displaying a crosshair
     parent : str
-        Directory of data files
-    suffix : str
-        Extension of the data file (e.g '.tif')
-    is_tifffile : bool
-        Is the file extension '.tif' or '.tiff'?
-    image : numpy.ndarray
+        Directory of the data files
+    stem1 : str
+        Name of the input data file
+    stem2 : str
+        Name of the '_segPred' data file
+    stem3 : str
+        Name of the '_uncertainty' data file
+    image : np.ndarray
         3D array with image data
-    segPred : numpy.ndarray
-        3D array with the vessel data
-    uncertainty : numpy.ndarray
-        3D array with uncertainties
+    segPred : np.ndarray
+        3D array with the predicted segmentation data
+    uncertainty : np.ndarray
+        3D array with uncertainty data
+    labels : np.ndarray
+        3D array with segmentation labels
     popup_window : QWidget
         Pop up window with uncertainty values
     """
@@ -120,8 +197,7 @@ class ExampleQWidget(QWidget):
 
         Parameter
         ---------
-        napari_viewer : widget
-            napari.viewer.Viewer
+        napari_viewer : napari.viewer.Viewer
         """
 
         # (03.05.2024)
@@ -191,23 +267,18 @@ class ExampleQWidget(QWidget):
 
         # Insert the Napari “Multiple Viewer Widget”
         self.dock_widget = MultipleViewerWidget(self.viewer, parent=self)
-        # layout.addWidget(self.dock_widget)
         self.viewer.window.add_dock_widget(self.dock_widget, name='Sample')
 
         # Add the cross widget (on the left in the viewer area)
         self.cross = CrossWidget(self.viewer, parent=self)
-        # layout.addWidget(self.cross)
         self.viewer.window.add_dock_widget(self.cross, name='Cross', area='left')
 
         self.setLayout(layout)
 
     def load_image(self):
-        """
-        Read the image file and save it in an image layer
-        """
+        """ Read the image file and save it in an image layer. """
 
         # (23.05.2024);
-
         # Find and load the image file
         filter1 = "TIFF files (*.tif *.tiff);;NIfTI files (*.nii *.nii.gz);;\
             All files (*.*)"
@@ -244,13 +315,12 @@ class ExampleQWidget(QWidget):
             return
 
         self.viewer.add_image(self.image, name=self.stem1)   # Show the image
-        #self.triple_view.load_image(self.image)
         self.segments.clear()
 
     def read_segPred(self):
         """
-        Read the segPred and uncertanty data and save it in a label and an
-        image layer
+        Read the _segPred and _uncertanty data and save it in a label and an
+        image layer.
         """
 
         # (23.05.2024, revised on 05.02.2025)
@@ -329,8 +399,8 @@ class ExampleQWidget(QWidget):
         if self.segments == []:
             self.find_segments(self.uncertainty)
 
-    def show_uncertainty(self, uncertainty: np.ndarray):
-        """ Show an image layer with the uncertainty data """
+    def show_uncertainty(self):
+        """ Show an image layer with the uncertainty data. """
 
         # (12.08.2025)
         if hasattr(self, 'uncertainty'):
@@ -340,7 +410,7 @@ class ExampleQWidget(QWidget):
             QMessageBox.information(self, 'Note', 'Uncertainty is not defined')
 
     def find_segments(self, uncertainty: np.ndarray):
-        """ Define segments that correspond to values of equal uncertainty """
+        """ Define segments that correspond to values of equal uncertainty. """
 
         # (09.08.2024, revised on 03.07.2025)
         t0 = time.time()                # UNIX timestamp
@@ -423,7 +493,7 @@ class ExampleQWidget(QWidget):
         self.viewer.add_labels(self.labels, name='Segmentation')
 
     def show_popup_window(self):
-        """ Define a pop-up window for the uncertainty list """
+        """ Define a pop-up window for the uncertainty list. """
 
         # (24.05.2024)
         self.popup_window = QWidget()
@@ -489,8 +559,8 @@ class ExampleQWidget(QWidget):
         Parameters
         ----------
         segment : dict
-            'name', 'uncertainty', 'counts', 'com', and 'done'
-            for a specific area
+            dictionary: {name, uncertainty, counts, com, done} for a specific
+            area
         grid_layout : QGridLayout
             Layout for a QGroupBox
         idx : int
@@ -524,9 +594,7 @@ class ExampleQWidget(QWidget):
         grid_layout.addWidget(button3, idx, 3)
 
     def zoom_in(self, segment: dict, margin_factor: float):
-        """
-        Show a segment and its immediate surroundings in a 3D view.
-        """
+        """ Show a segment and its immediate surroundings in a 3D view. """
 
         # (25.06.2025)
         self.viewer.layers.clear()          # Delete all layers in Napari
@@ -586,7 +654,7 @@ class ExampleQWidget(QWidget):
     def done(self, segment: dict):
         """
         Transfer data from the segment to the labels, segPred and uncertainty
-        layer and close the layers for the cropped images
+        layer and close the layers for the cropped images.
         """
 
         # (18.07.2024)
@@ -603,7 +671,7 @@ class ExampleQWidget(QWidget):
         self.show_popup_window()
 
     def re_enable(self, segment: dict):
-        """ Re-enable the data of a specific area in the pop-up window """
+        """ Re-enable the data of a specific area in the pop-up window. """
 
         # (19.07.2024)
         segment['done'] = False
@@ -612,12 +680,12 @@ class ExampleQWidget(QWidget):
     def compare_and_transfer(self, segment: dict):
         """
         Compare old and new data and transfer the changes to the segPred,
-        uncertainty and labels data
+        uncertainty and labels data.
 
         Parameters
         ----------
         segment : dict
-            Data of the segment
+            dictionary: {name, uncertainty, counts, com, done}
         """
 
         # (09.08.2024)
@@ -712,7 +780,7 @@ class ExampleQWidget(QWidget):
             QMessageBox.warning(self, 'I/O Error:', str(error))
 
     def load_intermediate_data(self):
-        """ Read the segPred and uncertainty data from files on hard drive """
+        """ Read the segPred and uncertainty data from files on hard drive. """
 
         # (30.07.2024)
         tmp = tempfile.gettempdir()
@@ -775,7 +843,7 @@ class ExampleQWidget(QWidget):
     def save_final_result(self):
         """
         Close all open segment layers, save the segPred and if applicable also
-        the uncertainty data to files on hard drive
+        the uncertainty data to files on hard drive.
         """
 
         # (13.08.2024)
@@ -829,7 +897,7 @@ class ExampleQWidget(QWidget):
         self.viewer.add_labels(self.labels, name='Segmentation')
 
     def checkbox_save_uncertainty(self, state: Qt.Checked):
-        """ Toggle the bool variable save_uncertainty """
+        """ Toggle the bool variable save_uncertainty. """
 
         if state == Qt.Checked:
             self.save_uncertainty = True
@@ -837,7 +905,7 @@ class ExampleQWidget(QWidget):
             self.save_uncertainty = False
 
     def show_info(self):
-        """ Show information about the current layer """
+        """ Show information about the current layer. """
 
         # (25.07.2024)
         layer = self.viewer.layers.selection.active
