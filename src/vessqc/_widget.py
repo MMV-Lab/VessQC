@@ -10,8 +10,15 @@ Functions
 _label_value_sparse
     Segments contiguous voxels with similar uncertainty and assigns them
     unique global labels.
-jsonify
-    Converts Python data types into a form that can be saved as a JSON file.
+_segment_uncertainties
+    Segmend 3D voxels by unique uncertainty values
+_merge_labels
+    Merge results of segmentation into a single label volume and filter
+    small segments.
+_create_segment_dicts
+    Create segment metadata dictionaries from labels and uncertainties.
+_jsonify
+    Converts Python data types into a form that can be saved as a JSON file
 
 Classes
 -------
@@ -54,9 +61,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import napari
 
-
-def _label_value_sparse(uncertainty, uncert, tolerance, structure, value_idx,
-    num_unique_uncert):
+def _label_value_sparse(uncertainty, uncert, idx, num_uncert):
     """
     Segments contiguous voxels with similar uncertainty and assigns them
     unique global labels.
@@ -68,13 +73,9 @@ def _label_value_sparse(uncertainty, uncert, tolerance, structure, value_idx,
         data points
     uncert : float
         Single uncertainty value
-    tolerance : float
-        Tolerance when comparing uncertainty values.
-    structure : np.ndarray
-        Connectivity array: np.ones((3, 3, 3), dtype=int)
-    value_idx : int
-        Index value
-    num_unique_uncert : int
+    idx : int
+        Index of the unique uncertainty value
+    num_uncert : int
         Number of unique uncertainty values
 
     Returns
@@ -87,40 +88,157 @@ def _label_value_sparse(uncertainty, uncert, tolerance, structure, value_idx,
             Global label values at the given indices
         - uncert : float
             Uncertainty value of the segment
-        - num : int
-            Number of connected components
+        - num_features : int
+            Number of found features
 
     None
         If no voxels match the criteria.
     """
 
-    # Worker side
     # (03.07.2025)
-
+    tolerance = 1e-2
+    structure = np.ones((3, 3, 3), dtype=int)       # Connectivity array
     mask = np.abs(uncertainty - uncert) < tolerance
     if not np.any(mask):
         return None
 
-    labeled, num = ndimage.label(mask, structure)   # Segmentation
-    if num == 0:
+    labels, num_features = ndimage.label(mask, structure)    # Segmentation
+    if num_features == 0:
         return None
 
-    # Calculate global unique labels directly
-    # local labels: 1, 2, 3, ...
-    # global labels: (local - 1) * num_unique_uncert + (value_idx + 1)
-    labeled_global = (labeled - 1) * num_unique_uncert + (value_idx + 1)
-    labeled_global[labeled == 0] = 0
+    # Calculate global unique labels
+    # labels = 1, 2, 3, ... num_features
+    # e.g. global_labels = 3, 23, 43, ... for num_uncert = 20, idx = 3
+    global_labels = idx + (labels - 1) * num_uncert
+    global_labels[labels == 0] = 0
 
     indices = np.where(mask)
     result = dict(
-        indices       = indices,
-        global_labels = labeled_global[indices],
-        uncert        = uncert,
-        num           = num
+        indices = indices,
+        global_labels = global_labels[indices],
+        uncert = uncert,
+        num_features = num_features
     )
     return result
 
-def jsonify(obj):
+def _segment_uncertainties(uncertainty: np.ndarray):
+    """
+    Segmend 3D voxels by unique uncertainty values
+
+    Parameters
+    ----------
+    uncertainty : np.ndarray
+        3D array of uncertainty values.
+
+    Returns
+    -------
+    result : list of dict
+        Each dict contains 'incices', 'global_labels', 'uncert', 'num_features'
+    """
+
+    # (12.02.2026)
+    unique_uncertainties = np.unique(uncertainty)
+    unique_uncertainties = unique_uncertainties[unique_uncertainties > 0]
+    num_uncert = len(unique_uncertainties)
+
+    results = Parallel(n_jobs=-1)(
+        delayed(_label_value_sparse)(uncertainty, uncert, idx, num_uncert)
+        for idx, uncert in enumerate(unique_uncertainties, start=1)
+    )
+
+    return [r for r in results if r is not None]
+
+def _merge_labels(results: list, shape: tuple, min_size=10):
+    """
+    Merge results of segmentation into a single label volume and filter
+    small segments.
+
+    Parameters
+    ----------
+    results : list of dict
+        Output of segment_uncertainties
+    shape : tuple
+        Shape of the original image
+    min_size : int
+        Minimum voxel count to keep a segment
+
+    Returns
+    -------
+    labels : np.ndarray
+        Label volume
+    uncert_values : dict
+        Dictionary mapping labels -> uncertainty
+    """
+
+    # (17.02.2026)
+    labels = np.zeros(shape, dtype=int)
+    uncert_values = {0: 0.0}
+
+    # Reconstruct der labels array with global labels
+    for result in results:
+        indices = result['indices']
+        global_labels = result['global_labels']
+        labels[indices] = global_labels
+
+        unique_labels = np.unique(global_labels)
+        unique_labels = unique_labels[unique_labels != 0]
+
+        for lbl in unique_labels:
+            uncert_values[lbl] = result['uncert']
+
+    # Find all labels that appear less than min_size times
+    counts = np.bincount(labels.ravel())
+    small_labels = np.where(counts < min_size)[0]
+    small_labels = small_labels[small_labels != 0]
+
+    # Replaces all labels that occur less than min_size with max_label
+    if len(small_labels) > 0:
+        max_label = np.max(labels) + 1
+        mask = np.isin(labels, small_labels)
+        labels[mask] = max_label
+        uncert_values[max_label] = 0.9999
+
+    return labels, uncert_values
+
+def _create_segment_dicts(labels: np.ndarray, uncert_values: dict):
+    """
+    Create segment metadata dictionaries from labels and uncertainties.
+
+    Parameters
+    ----------
+    labels : np.ndarray
+        Label volume
+    uncert_values : dict
+        Dictionary mapping labels -> uncertainty
+
+    Returns
+    -------
+    segments : list of dict
+        Each dict has keys: name, label, uncertainty, counts, coords, done
+    """
+
+    # (18.02.2026)
+    unique_labels = np.unique(labels)
+    unique_labels = unique_labels[unique_labels != 0]
+    counts = np.bincount(labels.ravel())
+
+    segments = []
+    for i, label in enumerate(unique_labels, start=1):
+        segment = dict(
+            name = f"Segment_{i}",
+            label = label,
+            uncertainty = uncert_values.get(label, 0.0),
+            counts = counts[label],
+            coords = None,          # coordinates of cropped image
+            done = False,
+        )
+        segments.append(segment)
+
+    # Sort by uncertainty ascending
+    segments.sort(key=lambda x: x['uncertainty'])
+    return segments
+
+def _jsonify(obj):
     """
     Converts Python data types into a JSON-serializable form
 
@@ -140,11 +258,11 @@ def jsonify(obj):
     if isinstance(obj, (np.integer, np.floating)):
         return obj.item()
     if isinstance(obj, tuple):
-        return [jsonify(x) for x in obj]
+        return [_jsonify(x) for x in obj]
     if isinstance(obj, dict):
-        return {k: jsonify(v) for k, v in obj.items()}
+        return {k: _jsonify(v) for k, v in obj.items()}
     if isinstance(obj, list):
-        return [jsonify(x) for x in obj]
+        return [_jsonify(x) for x in obj]
     return obj
 
 
@@ -410,91 +528,28 @@ class ExampleQWidget(QWidget):
         """
         Define segments that correspond to values of equal uncertainty
 
-        Paramweters
-        -----------
+        Parameters
+        ----------
         uncertainty : np.ndarray
-            3D array with information on the uncertainty of the calculated
-            data points
+            3D array with uncertainty data
         """
 
-        # (09.08.2024, revised on 03.07.2025)
+        # (09.08.2024, revised on 03.07.2025; 18.02.2026)
         t0 = time.time()                # UNIX timestamp
         print('The segmentation will take some time.')
 
-        unique_uncertainties = np.unique(uncertainty)
-        unique_uncertainties = unique_uncertainties[unique_uncertainties > 0]
-        num_unique_uncert = len(unique_uncertainties)
-        tolerance = 1e-2
-        structure = np.ones((3, 3, 3), dtype=int)   # Connectivity
+        # 1st: Segmentation
+        results = _segment_uncertainties(uncertainty)
 
-        results = Parallel(n_jobs=-1)(
-            delayed(_label_value_sparse)(
-                uncertainty, uncert, tolerance, structure, idx,
-                num_unique_uncert
-            )
-            for idx, uncert in enumerate(unique_uncertainties)
-        )
+        # 2nd: Merge labels and filter small segments
+        self.labels, uncert_values = _merge_labels(results, uncertainty.shape)
 
-        self.labels = np.zeros_like(uncertainty, dtype=int)
-        uncert_values = {0: 0.0}    # Dictionary of all uncertanty values
-
-        for result in results:
-            if result is None:
-                continue
-            indices = result['indices']
-            labels  = result['global_labels']
-            uncert  = result['uncert']
-            num     = result['num']
-
-            self.labels[indices] = labels
-     
-            # Form a dictionary with the uncertainty values that correspond to
-            # the respective labels
-            keys     = list(np.unique(labels))
-            values   = [uncert] * num
-            u_values = dict(zip(keys, values))
-            uncert_values = {**uncert_values, **u_values}
+        #3rd: Create segment dictionaries
+        self.segments = _create_segment_dicts(self.labels, uncert_values)
 
         print('Done in', time.time() - t0, 's')
 
-        # Determine all labels that appear less than 10 times
-        min_size = 10
-        counts = np.bincount(self.labels.ravel())
-        small_labels = np.where(counts < min_size)[0]
-        small_labels = small_labels[small_labels != 0]
-
-        # Replaces all labels that occur less than 10 times with the value
-        # max(labels) + 1
-        max_label = np.max(self.labels) + 1
-        mask = np.isin(self.labels, small_labels)
-        self.labels[mask] = max_label
-
-        # Create a structure for storing the data
-        unique_labels = np.unique(self.labels)
-        unique_labels = unique_labels[unique_labels != 0]
-        counts = np.bincount(self.labels.ravel())
-        uncert_values[max_label] = 0.9999
-
-        self.segments = list()
-        for label in unique_labels:
-            segment = dict(
-                name        = '',
-                label       = label,
-                uncertainty = uncert_values[label],
-                counts      = counts[label],
-                coords      = None,     # coordinates of cropped image
-                done        = False,
-            )
-            self.segments.append(segment)
-
-        # Sort by 'uncertainty' ascending
-        self.segments.sort(key=lambda x: x['uncertainty'])
-
-        # Determine the names of the segments
-        for i, segment in enumerate(self.segments, start=1):
-            segment['name'] = f"Segment_{i}"
-
-        # Display the segments in an label layer
+        # 4th: Display the segments in an label layer
         self.viewer.add_labels(self.labels, name='Segmentation')
 
     def show_popup_window(self):
@@ -789,7 +844,7 @@ class ExampleQWidget(QWidget):
         print('Save', filename)
         try:
             with filename.open('w', encoding='utf-8') as file:
-                json.dump(jsonify(self.segments), file, indent=2)
+                json.dump(_jsonify(self.segments), file, indent=2)
         except BaseException as error:
             QMessageBox.warning(self, 'I/O Error:', str(error))
 
