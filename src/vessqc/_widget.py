@@ -425,6 +425,40 @@ def _focus_viewer(viewer: napari.viewer.Viewer, labels: np.ndarray, label: int,
     # Change to the matching color
     layer.selected_label = label
 
+def _save_npy(array: np.ndarray, filename: Path):
+    """
+    Save the array in .npy format
+    
+    Parameters
+    ----------
+    array : np.ndarray
+        Data array
+    filename : Path
+        Name of the .npy file
+    """
+
+    # (13.03.2026)
+    with filename.open("wb") as f:
+        np.save(f, array)
+
+def _load_npy(filename: Path):
+    """
+    Load an data array from a .npy file
+
+    Parameters
+    ----------
+    filename : Path
+        Name of the .npy file
+
+    Returns
+    -------
+    np.ndarray
+    """
+
+    # (13.03.2026)
+    with filename.open("rb") as f:
+        return np.load(f)
+
 def _jsonify(obj):
     """
     Converts Python data types into a JSON-serializable form
@@ -975,8 +1009,7 @@ class ExampleQWidget(QWidget):
         filename = tmp.joinpath(self.stem2).with_suffix('.npy')
         print('Save', filename)
         try:
-            with filename.open('wb') as file:
-                np.save(file, self.segPred)
+            _save_npy(self.segPred, filename)
         except BaseException as error:
             QMessageBox.warning(self, 'I/O Error:', str(error))
             return
@@ -985,8 +1018,7 @@ class ExampleQWidget(QWidget):
         filename = tmp.joinpath(self.stem3).with_suffix('.npy')
         print('Save', filename)
         try:
-            with filename.open('wb') as file:
-                np.save(file, self.uncertainty)
+            _save_npy(self.uncertainty, filename)
         except BaseException as error:
             QMessageBox.warning(self, 'I/O Error:', str(error))
             return
@@ -996,8 +1028,7 @@ class ExampleQWidget(QWidget):
         filename = tmp.joinpath(stem4).with_suffix('.npy')
         print('Save', filename)
         try:
-            with filename.open('wb') as file:
-                np.save(file, self.labels)
+            _save_npy(self.labels, filename)
         except BaseException as error:
             QMessageBox.warning(self, 'I/O Error:', str(error))
             return
@@ -1026,10 +1057,9 @@ class ExampleQWidget(QWidget):
         filename = tmp.joinpath(self.stem2).with_suffix('.npy')
         print('Read', filename)
         try:
-            with filename.open('rb') as file:
-                self.segPred = np.load(file)
+            self.segPred = _load_npy(filename)
         except BaseException as error:
-            QMessageBox.warning(self, 'I/O Error:', str(error))
+            QMessageBox.warning(self, 'I/O Error 1:', str(error))
             return
 
         # 2st: read the uncertainty data
@@ -1039,10 +1069,9 @@ class ExampleQWidget(QWidget):
         filename = tmp.joinpath(self.stem3).with_suffix('.npy')
         print('Read', filename)
         try:
-            with filename.open('rb') as file:
-                self.uncertainty = np.load(file)
+            self.uncertainty = _load_npy(filename)
         except BaseException as error:
-            QMessageBox.warning(self, 'I/O Error:', str(error))
+            QMessageBox.warning(self, 'I/O Error 2:', str(error))
             return
 
         # 3rd: read the labels
@@ -1050,10 +1079,9 @@ class ExampleQWidget(QWidget):
         filename = tmp.joinpath(stem4).with_suffix('.npy')
         print('Read', filename)
         try:
-            with filename.open('rb') as file:
-                self.labels = np.load(file)
+            self.labels = _load_npy(filename)
         except BaseException as error:
-            QMessageBox.warning(self, 'I/O Error:', str(error))
+            QMessageBox.warning(self, 'I/O Error 3:', str(error))
             return
 
         # 4th: read the segments dictionary
@@ -1064,7 +1092,7 @@ class ExampleQWidget(QWidget):
             with filename.open('r', encoding='utf-8') as file:
                 self.segments = json.load(file)
         except BaseException as error:
-            QMessageBox.warning(self, 'I/O Error:', str(error))
+            QMessageBox.warning(self, 'I/O Error 4:', str(error))
             return
 
         # Close cropped images and show image, segPred und labels
