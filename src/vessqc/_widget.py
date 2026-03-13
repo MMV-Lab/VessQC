@@ -13,10 +13,21 @@ _label_value_sparse
 _segment_uncertainties
     Segmend 3D voxels by unique uncertainty values
 _merge_labels
-    Merge results of segmentation into a single label volume and filter
-    small segments.
+    Merge results of segmentation into a single label volume
+_merge_small_segments
+    Merge labels that occur less than 'min_size' times into a new label.
 _create_segment_dicts
     Create segment metadata dictionaries from labels and uncertainties.
+_compute_bbox
+    Determine a bounding box
+_expand_bbox
+    Enlarge the bounding box
+_crop_volumes
+    Cropping the data
+_display_cropped
+    Plotting in Napari
+_focus_viewer
+    Focus the camera
 _jsonify
     Converts Python data types into a form that can be saved as a JSON file
 
@@ -148,10 +159,9 @@ def _segment_uncertainties(uncertainty: np.ndarray):
 
     return [r for r in results if r is not None]
 
-def _merge_labels(results: list, shape: tuple, min_size=10):
+def _merge_labels(results: list, shape: tuple):
     """
-    Merge results of segmentation into a single label volume and filter
-    small segments.
+    Merge results of segmentation into a single label volume
 
     Parameters
     ----------
@@ -159,8 +169,6 @@ def _merge_labels(results: list, shape: tuple, min_size=10):
         Output of segment_uncertainties
     shape : tuple
         Shape of the original image
-    min_size : int
-        Minimum voxel count to keep a segment
 
     Returns
     -------
@@ -171,7 +179,7 @@ def _merge_labels(results: list, shape: tuple, min_size=10):
     """
 
     # (17.02.2026)
-    labels = np.zeros(shape, dtype=int)
+    labels = np.zeros(shape, dtype=np.int32)
     uncert_values = {0: 0.0}
 
     # Reconstruct der labels array with global labels
@@ -186,6 +194,30 @@ def _merge_labels(results: list, shape: tuple, min_size=10):
         for lbl in unique_labels:
             uncert_values[lbl] = result['uncert']
 
+    return labels, uncert_values
+
+def _merge_small_segments(labels: np.ndarray, uncert_values: dict, min_size: int):
+    """
+    Merge labels that occur less than 'min_size' times into a new label.
+
+    Parameters
+    ----------
+    labels : np.ndarray
+        Label volume
+    uncert_values : dict
+        Dictionary mapping label -> uncertainty
+    min_size : int
+        Minimum voxel count to keep a segment
+
+    Returns
+    -------
+    labels : np.ndarray
+        Updated label volume
+    uncert_values : dict
+        Updated uncertainty dictionary
+    """
+
+    # (06.03.2026)
     # Find all labels that appear less than min_size times
     counts = np.bincount(labels.ravel())
     small_labels = np.where(counts < min_size)[0]
@@ -195,6 +227,7 @@ def _merge_labels(results: list, shape: tuple, min_size=10):
     if len(small_labels) > 0:
         max_label = np.max(labels) + 1
         mask = np.isin(labels, small_labels)
+
         labels[mask] = max_label
         uncert_values[max_label] = 0.9999
 
@@ -237,6 +270,160 @@ def _create_segment_dicts(labels: np.ndarray, uncert_values: dict):
     # Sort by uncertainty ascending
     segments.sort(key=lambda x: x['uncertainty'])
     return segments
+
+def _compute_bbox(mask: np.ndarray):
+    """Determine a bounding box"""
+
+    # (06.03.2026)
+    coords = np.argwhere(mask)
+
+    min_z, min_y, min_x = coords.min(axis=0)
+    max_z, max_y, max_x = coords.max(axis=0)
+
+    return [[min_z, min_y, min_x], [max_z, max_y, max_x]]
+
+def _expand_bbox(b_box: list, shape: tuple, margin_factor: float):
+    """
+    Enlarge the bounding box
+
+    Parameters
+    ----------
+    b_box : list
+        Bounding box
+    shape : tuple
+        Shape of the image
+    margin_factor : float
+        Factor for enlarging the b_box
+
+    Returns
+    -------
+    b_box : list
+        Updated bounding box
+    """
+
+    # (06.03.2026)
+    (min_z, min_y, min_x), (max_z, max_y, max_x) = b_box
+
+    size_z = max_z - min_z + 1
+    size_y = max_y - min_y + 1
+    size_x = max_x - min_x + 1
+
+    size = max(size_x, size_y, size_z)
+    margin = int(size * margin_factor / 2)
+
+    start_z = max(min_z - margin, 0)
+    start_y = max(min_y - margin, 0)
+    start_x = max(min_x - margin, 0)
+
+    end_z   = min(max_z + margin + 1, shape[0])
+    end_y   = min(max_y + margin + 1, shape[1])
+    end_x   = min(max_x + margin + 1, shape[2])
+
+    return [[start_z, start_y, start_x], [end_z, end_y, end_x]]
+
+def _crop_volumes(b_box: list, image: np.ndarray, segPred: np.ndarray,
+    labels: np.ndarray, label: np.int32):
+    """
+    Cropping the data
+
+    Parameters
+    ----------
+    b_box : list
+        Bounding box
+    image : np.ndarray
+        3D array with image data
+    segPred : np.ndarray
+        3D array with the predicted segmentation data
+    labels : np,ndarray
+        3D array with segmentation labels
+    label : np.int32
+        Singel label
+
+    Returns
+    -------
+    dict
+        Dictionary with the keys:
+        - image : np.ndarray
+        - segPred : np.ndarray
+        - labels : np.ndarray
+    """
+
+    # (06.03.2026)
+    (min_z, min_y, min_x), (max_z, max_y, max_x) = b_box
+
+    cropped_image   = image[  min_z:max_z, min_y:max_y, min_x:max_x]
+    cropped_segPred = segPred[min_z:max_z, min_y:max_y, min_x:max_x]
+    cropped_labels  = labels[ min_z:max_z, min_y:max_y, min_x:max_x]
+
+    # Keep only inside the box
+    masked_labels = np.where(cropped_labels == label, label, 0)
+
+    return {
+        "image": cropped_image,
+        "segPred": cropped_segPred,
+        "labels": masked_labels
+    }
+
+def _display_cropped(viewer: napari.viewer.Viewer, stem1: str, stem2: str,
+    segment_name: str, cropped: dict):
+    """
+    Plotting in Napari
+
+    Parameters
+    ----------
+    viewer : napari.viewer.Viewer
+    stem1 : str
+        Name of the input data file
+    stem2 : str
+        Name of the '_segPred' data file
+    segment_name : str
+        Name of the segment
+    croped : dict
+        Dictionary with the keys:
+        - image : np.ndarray
+        - segPred : np.ndarray
+        - labels : np.ndarray
+
+    Returns
+    -------
+    layer : napari.layers.Layer
+    """
+
+    # (06.03.2026)
+    name1 = 'Cropped ' + stem1
+    name2 = 'Cropped ' + stem2
+
+    viewer.add_image( cropped["image"],   name=name1)
+    viewer.add_labels(cropped["segPred"], name=name2)
+
+    layer = viewer.add_labels(cropped["labels"], name=segment_name)
+
+    return layer
+
+def _focus_viewer(viewer: napari.viewer.Viewer, labels: np.ndarray, label: int,
+    layer: napari.layers.Layer):
+    """
+    Focus the camera
+
+    Parameters
+    ----------
+    viewer : napari.viewer.Viewer
+    labels : np.ndarray
+        3D array with segmentation labels
+    label : int
+        selected label
+    layer : napari.layers.Layer
+    """
+
+    # (06.03.2026)
+    center_of_mass = ndimage.center_of_mass(labels)
+    center_of_mass = tuple(int(round(c)) for c in center_of_mass)
+
+    viewer.dims.current_step = center_of_mass
+    viewer.camera.center = center_of_mass
+
+    # Change to the matching color
+    layer.selected_label = label
 
 def _jsonify(obj):
     """
@@ -541,10 +728,14 @@ class ExampleQWidget(QWidget):
         # 1st: Segmentation
         results = _segment_uncertainties(uncertainty)
 
-        # 2nd: Merge labels and filter small segments
+        # 2nd: Merge labels
         self.labels, uncert_values = _merge_labels(results, uncertainty.shape)
 
-        #3rd: Create segment dictionaries
+        # 3rd: filter small segments
+        self.labels, uncert_values = _merge_small_segments(self.labels,
+            uncert_values, min_size=10)
+
+        #4th: Create segment dictionaries
         self.segments = _create_segment_dicts(self.labels, uncert_values)
 
         print('Done in', time.time() - t0, 's')
@@ -655,70 +846,43 @@ class ExampleQWidget(QWidget):
 
     def zoom_in(self, segment: dict, margin_factor: float):
         """
-        Show a segment and its immediate surroundings in a 3D view
+        Show a segment and its surroundings in a 3D view
 
         Parameters
         ----------
         segment : dict
-            dictionary: {name, label, uncertainty, counts, coords, done}
+            Dictionary with the keys:
+            - name,
+            - label,
+            - uncertainty,
+            - counts,
+            - coords,
+            - done
         margin_factor : float
-            0.75
+            Factor for enlarging the b_box
         """
 
-        # (25.06.2025)
-        self.viewer.layers.clear()          # Delete all layers in Napari
+        # (25.06.2025, revised on 06.03.2026)
+        self.viewer.layers.clear()      # Delete all layers in Napari
 
         # Determine the segment to be displayed
-        label = segment['label']            # target label
-        mask  = (self.labels == label)      # Segment mask
+        label = segment['label']        # target label
+        mask  = self.labels == label    # Segment mask
 
-        # Calculate bounding box
-        coords = np.argwhere(mask)
-        minz, miny, minx = coords.min(axis=0)
-        maxz, maxy, maxx = coords.max(axis=0)
-
-        # Enlage box
-        sz, sy, sx = maxz - minz + 1, maxy - miny + 1, maxx - minx + 1
-        size = max(sx, sy, sz)
-        margin = int(size * margin_factor / 2)
-
-        # Limitation to the image
-        shape = self.image.shape
-        startz = max(minz - margin, 0)
-        starty = max(miny - margin, 0)
-        startx = max(minx - margin, 0)
-        endz   = min(maxz + margin + 1, shape[0])
-        endy   = min(maxy + margin + 1, shape[1])
-        endx   = min(maxx + margin + 1, shape[2])
+        # 1st: Calculate bounding box
+        b_box = _compute_bbox(mask)
+        b_box = _expand_bbox(b_box, self.image.shape, margin_factor)
 
         # Save the coordinates of the cropped image
-        segment['coords'] = [[startz, starty, startx], [endz, endy, endx]]
+        segment['coords'] = b_box
 
-        # Cropping
-        cropped_image = self.image[startz:endz, starty:endy, startx:endx]
-        cropped_segPred = self.segPred[startz:endz, starty:endy,
-            startx:endx]
-        cropped_labels = self.labels[startz:endz, starty:endy, startx:endx]
+        cropped = _crop_volumes(b_box, self.image, self.segPred, self.labels,
+            label)
 
-        # Keep only inside the box
-        masked_labels = np.where(cropped_labels == label, label, 0)
+        layer = _display_cropped(self.viewer, self.stem1, self.stem2,
+            segment["name"], cropped)
 
-        # Display data in Napari
-        name1 = 'Cropped ' + self.stem1
-        name2 = 'Cropped ' + self.stem2
-        name3 = segment['name']
-        self.viewer.add_image(cropped_image, name=name1)
-        self.viewer.add_labels(cropped_segPred, name=name2)
-        layer = self.viewer.add_labels(masked_labels, name=name3)
-
-        # Set the appropriate level and focus
-        com = ndimage.center_of_mass(masked_labels)     # center of mass
-        com = tuple(int(round(c)) for c in com)
-        self.viewer.dims.current_step = com
-        self.viewer.camera.center = com
-
-        # Change to the matching color
-        layer.selected_label = label
+        _focus_viewer(self.viewer, cropped["labels"], label, layer)
 
     def done(self, segment: dict):
         """
