@@ -438,6 +438,7 @@ def _save_npy(array: np.ndarray, filename: Path):
     """
 
     # (13.03.2026)
+    print('Save file', filename)
     with filename.open("wb") as f:
         np.save(f, array)
 
@@ -456,8 +457,29 @@ def _load_npy(filename: Path):
     """
 
     # (13.03.2026)
+    print('Read file', filename)
     with filename.open("rb") as f:
         return np.load(f)
+
+def _build_filename(stem: str, suffix: str):
+    """
+    Generate a filename
+
+    Parameters
+    ----------
+    stem : str
+        Name of the temporary file
+    suffix : str
+        File name extension
+
+    Returns
+    -------
+        Name of the temporary file
+    """
+
+    # (24.04.2026)
+    tmp = Path(tempfile.gettempdir())
+    return tmp.joinpath(stem).with_suffix(suffix)
 
 def _jsonify(obj):
     """
@@ -896,7 +918,7 @@ class ExampleQWidget(QWidget):
             Factor for enlarging the b_box
         """
 
-        # (25.06.2025, revised on 06.03.2026)
+        # (25.06.2025, revised 06.03.2026)
         self.viewer.layers.clear()      # Delete all layers in Napari
 
         # Determine the segment to be displayed
@@ -1001,98 +1023,60 @@ class ExampleQWidget(QWidget):
         Save the segPred, uncertainty and labels data to files on hard drive
         """
 
-        # (26.07.2024)
-        tmp = tempfile.gettempdir()
-        tmp = Path(tmp)
+        # (26.07.2024, revised 24.04.2026)
+        base = self.stem1.removesuffix('_IM')
 
-        # 1st: save the segPred data
-        filename = tmp.joinpath(self.stem2).with_suffix('.npy')
-        print('Save', filename)
         try:
-            _save_npy(self.segPred, filename)
-        except BaseException as error:
-            QMessageBox.warning(self, 'I/O Error:', str(error))
-            return
+            stem2 = base + '_segPred'
+            _save_npy(self.segPred,
+                _build_filename(stem2, '.npy'))
 
-        # 2nd: save the uncertainty data
-        filename = tmp.joinpath(self.stem3).with_suffix('.npy')
-        print('Save', filename)
-        try:
-            _save_npy(self.uncertainty, filename)
-        except BaseException as error:
-            QMessageBox.warning(self, 'I/O Error:', str(error))
-            return
+            stem3 = base + '_uncertainty'
+            _save_npy(self.uncertainty,
+                _build_filename(stem3, '.npy'))
 
-        # 3rd: save the labels
-        stem4 = self.stem1[:-3] + '_labels'
-        filename = tmp.joinpath(stem4).with_suffix('.npy')
-        print('Save', filename)
-        try:
-            _save_npy(self.labels, filename)
-        except BaseException as error:
-            QMessageBox.warning(self, 'I/O Error:', str(error))
-            return
+            stem4 = base + '_labels'
+            _save_npy(self.labels,
+                _build_filename(stem4, '.npy'))
 
-        # 4th: save the segments dictionary
-        stem5 = self.stem1[:-3] + '_segments'
-        filename = tmp.joinpath(stem5).with_suffix('.json')
-        print('Save', filename)
-        try:
-            with filename.open('w', encoding='utf-8') as file:
-                json.dump(_jsonify(self.segments), file, indent=2)
+            stem5 = base + '_segments'
+            filename = _build_filename(stem5, '.json')
+
+            print('Save file', filename)
+            with filename.open('w', encoding='utf-8') as f:
+                json.dump(_jsonify(self.segments), f, indent=2)
+
         except BaseException as error:
             QMessageBox.warning(self, 'I/O Error:', str(error))
 
     def load_intermediate_data(self):
         """Read the segPred and uncertainty data from files on hard drive"""
 
-        # (30.07.2024)
-        tmp = tempfile.gettempdir()
-        tmp = Path(tmp)
+        # (30.07.2024, revised 28.04.2026)
+        base = self.stem1.removesuffix('_IM')
 
-        # 1st: read the segPred data
-        if not hasattr(self, 'stem2'):
-            self.stem2 = self.stem1[:-3] + '_segPred'
-
-        filename = tmp.joinpath(self.stem2).with_suffix('.npy')
-        print('Read', filename)
         try:
-            self.segPred = _load_npy(filename)
+            stem2 = base + '_segPred'
+            self.segPred = _load_npy(
+                _build_filename(stem2, '.npy'))
+
+            stem3 = base + '_uncertainty'
+            self.uncertainty = _load_npy(
+                _build_filename(self.stem3, '.npy'))
+
+            stem4 = base + '_labels'
+            self.labels = _load_npy(
+                _build_filename(stem4, '.npy'))
+
+            stem5 = base + '_segments'
+            filename = _build_filename(stem5, '.json')
+
+            print('Read file', filename)
+            with filename.open('r', encoding='utf-8') as f:
+                self.segments = json.load(f)
+
         except BaseException as error:
             QMessageBox.warning(self, 'I/O Error 1:', str(error))
-            return
-
-        # 2st: read the uncertainty data
-        if not hasattr(self, 'stem3'):
-            self.stem3 = self.stem1[:-3] + '_uncertainty'
-
-        filename = tmp.joinpath(self.stem3).with_suffix('.npy')
-        print('Read', filename)
-        try:
-            self.uncertainty = _load_npy(filename)
-        except BaseException as error:
-            QMessageBox.warning(self, 'I/O Error 2:', str(error))
-            return
-
-        # 3rd: read the labels
-        stem4 = self.stem1[:-3] + '_labels'
-        filename = tmp.joinpath(stem4).with_suffix('.npy')
-        print('Read', filename)
-        try:
-            self.labels = _load_npy(filename)
-        except BaseException as error:
-            QMessageBox.warning(self, 'I/O Error 3:', str(error))
-            return
-
-        # 4th: read the segments dictionary
-        stem5 = self.stem1[:-3] + '_segments'
-        filename = tmp.joinpath(stem5).with_suffix('.json')
-        print('Read', filename)
-        try:
-            with filename.open('r', encoding='utf-8') as file:
-                self.segments = json.load(file)
-        except BaseException as error:
-            QMessageBox.warning(self, 'I/O Error 4:', str(error))
             return
 
         # Close cropped images and show image, segPred und labels

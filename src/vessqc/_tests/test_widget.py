@@ -31,8 +31,7 @@ from vessqc import ExampleQWidget
 
 # Constants with the _data path and the TEMP directory
 DATA = Path(__file__).parent / '_data'
-tmp  = tempfile.gettempdir()
-TEMP = Path(tmp)
+TEMP = Path(tempfile.gettempdir())
 
 def normalize_for_json(data):
     # Suggestion from ChatGPT
