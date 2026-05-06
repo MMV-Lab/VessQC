@@ -2,9 +2,9 @@
 # (12.09.2024)
 
 import builtins
+from dataclasses import asdict
 import json
 import napari
-from ..multiple_viewer_widget import MultipleViewerWidget, CrossWidget
 import numpy as np
 from pathlib import Path
 import pytest
@@ -27,11 +27,16 @@ from qtpy.QtWidgets import (
 import tempfile
 from tifffile import imread, imwrite
 from unittest import mock
-from vessqc import ExampleQWidget
+from vessqc import (
+    ExampleQWidget,
+    Segment,
+    _save_npy,
+    _load_npy,
+    _build_filename,
+)
+from ..multiple_viewer_widget import MultipleViewerWidget, CrossWidget
 
-# Constants with the _data path and the TEMP directory
-DATA = Path(__file__).parent / '_data'
-TEMP = Path(tempfile.gettempdir())
+DATA = Path(__file__).parent / '_data'      # Constant with the _data path
 
 def normalize_for_json(data):
     # Suggestion from ChatGPT
@@ -139,10 +144,13 @@ def segment_4New():
 
 @pytest.fixture
 def segments():
-    # (01.08.2025)
+    # (01.08.2025, revised 30.04.2026)
     filename = DATA / 'segments.json'
-    with filename.open('r', encoding='utf-8') as file:
-        segments = json.load(file)
+    with filename.open('r', encoding='utf-8') as f:
+        data = json.load(f)
+
+    # Reconstruct Segment objects from JSON dictionaries.
+    segments = [Segment(**seg) for seg in data]
     return segments
 
 
@@ -318,7 +326,8 @@ def test_zoom_in(widget, image, segPred, labels, cropped_segPred,
     layer = widget.viewer.layers[name]
     assert np.array_equal(layer.data, segment_4)
 
-    assert widget.segments[3]['coords'] == [[13, 13, 12], [18, 20, 19]]
+    segment = widget.segments[3]
+    assert segment.coords == [[13, 13, 12], [18, 20, 19]]
     
 
 @pytest.mark.done
@@ -334,7 +343,7 @@ def test_done(widget, image, segPred, segPredNew, uncertainty, uncertaintyNew,
     widget.stem2       = 'Box32x32_segPred'
 
     segment = segments[3]
-    segment['coords'] = [[13, 13, 12], [18, 20, 19]]
+    segment.coords = [[13, 13, 12], [18, 20, 19]]
 
     widget.viewer.add_labels(segment_4New, name='Segment_4')
 
@@ -348,7 +357,8 @@ def test_done(widget, image, segPred, segPredNew, uncertainty, uncertaintyNew,
     assert np.array_equal(widget.labels,      labelsNew)
     assert np.array_equal(widget.segPred,     segPredNew)
     assert np.array_equal(widget.uncertainty, uncertaintyNew)
-    assert segments[3]['done'] == True
+    segment = widget.segments[3]
+    assert segment.done == True
 
 
 @pytest.mark.re_enable
@@ -361,49 +371,52 @@ def test_re_enable(widget, segments):
         widget.re_enable(segment)
         mock_show.assert_called_once()
 
-    assert segments[3]['done'] == False
+    segment = widget.segments[3]
+    assert segment.done == False
 
 
 @pytest.mark.save_intermediate
 def test_save_intermediate_data(widget, segPred, uncertainty, labels, segments):
-    # (27.09.2024)
+    # (27.09.2024, revised 30.04.2026)
     widget.segPred      = segPred
     widget.uncertainty  = uncertainty
     widget.labels       = labels
     widget.segments     = segments
     widget.stem1        = 'Box32x32_IM'
-    widget.stem2        = 'Box32x32_segPred'
-    widget.stem3        = 'Box32x32_uncertainty'
     widget.save_intermediate_data()
 
-    filename = TEMP.joinpath('Box32x32_segPred.npy')
-    loaded_data = np.load(filename)
+    base = 'Box32x32'
+    stem = base + '_segPred'
+    loaded_data = _load_npy(_build_filename(stem, '.npy'))
     assert np.array_equal(loaded_data, segPred)
 
-    filename = filename.with_name('Box32x32_uncertainty.npy')
-    loaded_data = np.load(filename)
+    stem = base + '_uncertainty.npy'
+    loaded_data = _load_npy(_build_filename(stem, '.npy'))
     assert np.array_equal(loaded_data, uncertainty)
 
-    filename = filename.with_name('Box32x32_labels.npy')
-    loaded_data = np.load(filename)
+    stem = base + '_labels.npy'
+    loaded_data = _load_npy(_build_filename(stem, '.npy'))
     assert np.array_equal(loaded_data, labels)
 
-    filename = filename.with_name('Box32x32_segments.json')
-    with filename.open('r', encoding='utf-8') as file:
-        loaded_data = json.load(file)
+    stem = base + '_segments'
+    filename = _build_filename(stem, '.json')
+
+    print('Read file', filename)
+    with filename.open('r', encoding='utf-8') as f:
+        data = json.load(f)
+    # Reconstruct Segment objects from JSON dictionaries.
+    loaded_data = [Segment(**seg) for seg in data]
     assert loaded_data == segments
 
 
 @pytest.mark.save_intermediate_with_exc
 def test_save_intermediate_data_with_exc(widget, segments):
-    # (27.09.2024)
+    # (27.09.2024, revised 05.05.2026)
     widget.segPred     = np.ones((3, 3, 3), dtype=np.int32)
     widget.uncertainty = np.random.rand(3, 3, 3)
     widget.labels      = np.ones((3, 3, 3), dtype=np.int32)
     widget.segments    = segments
-    widget.stem1       = 'test_save_IM'
-    widget.stem2       = 'test_save_segPred'
-    widget.stem3       = 'test_save_uncertainty'
+    widget.stem1       = 'Test_IM'
 
     # Simulate an exception when opening the file
     with mock.patch("pathlib.Path.open", side_effect=OSError("File error")), \
@@ -411,43 +424,49 @@ def test_save_intermediate_data_with_exc(widget, segments):
         widget.save_intermediate_data()
         assert mock_warning.call_count == 1
 
-    filename = TEMP.joinpath('test_save_segPred.npy')
+    base = 'Test'
+    stem = base + '_segPred'
+    filename = _build_filename(stem, '.npy')
     assert not filename.exists()
 
-    filename = filename.with_name('test_save_uncertainty.npy')
+    stem = base + '_uncertainty.npy'
+    filename = _build_filename(stem, '.npy')
     assert not filename.exists()
 
-    filename = filename.with_name('test_save_labels.npy')
+    stem = base + '_labels.npy'
+    filename = _build_filename(stem, '.npy')
     assert not filename.exists()
 
-    filename = filename.with_name('test_save_segments.json')
+    stem = base + '_segments'
+    filename = _build_filename(stem, '.json')
     assert not filename.exists()
 
 
 @pytest.mark.load_intermediate
 def test_load_intermediate_data(widget, image, segPred, uncertainty, labels,
     segments):
-    # (01.10.2024)
-    filename = TEMP.joinpath('Box32x32_segPred.npy')
-    with filename.open('wb') as file:
-        np.save(file, segPred)
+    # (01.10.2024, revised 06.05.2026)
+    # 1st step: save the test data.
+    base = 'Box32x32'
+    stem = base + '_segPred'
+    _save_npy(segPred, _build_filename(stem, '.npy'))
 
-    filename = filename.with_name('Box32x32_uncertainty.npy')
-    with filename.open('wb') as file:
-        np.save(file, uncertainty)
+    stem = base + '_uncertainty.npy'
+    _save_npy(uncertainty, _build_filename(stem, '.npy'))
 
-    filename = filename.with_name('Box32x32_labels.npy')
-    with filename.open('wb') as file:
-        np.save(file, labels)
+    stem = base + '_labels.npy'
+    _save_npy(labels, _build_filename(stem, '.npy'))
 
-    filename = filename.with_name('Box32x32_segments.json')
-    with filename.open('w', encoding='utf-8') as file:
-        json.dump(segments, file, indent=2)
+    stem = base + '_segments'
+    filename = _build_filename(stem, '.json')
 
+    print('Save file', filename)
+    with filename.open('w', encoding='utf-8') as f:
+        json.dump([asdict(seg) for seg in segments], f, indent=2)
+
+    # 2nd step: read the test data
     widget.image = image
     widget.stem1 = 'Box32x32_IM'
-    widget.stem2 = 'Box32x32_segPred'
-    widget.stem3 = 'Box32x32_uncertainty'
     widget.load_intermediate_data()
 
     assert np.array_equal(widget.segPred,     segPred)
@@ -466,15 +485,13 @@ def test_load_intermediate_data(widget, image, segPred, uncertainty, labels,
 
 
 @pytest.mark.load_intermediate_with_exc
-def test_load_intermediate_data_with_exc(widget):
+def test_load_intermediate_data_with_exc(widget, segments):
     # (01.10.2024)
     widget.image       = np.random.rand(3, 3, 3)
     widget.segPred     = np.ones((3, 3, 3), dtype=np.int32)
     widget.uncertainty = np.random.rand(3, 3, 3)
-    widget.segments    = []
-    widget.stem1       = 'test_save_IM'
-    widget.stem2       = 'test_save_segPred'
-    widget.stem3       = 'test_save_uncertainty'
+    widget.segments    = segments
+    widget.stem1       = 'Test_IM'
 
     # Simulate an exception when opening the file
     with mock.patch("pathlib.Path.open", side_effect=OSError("File error")), \
@@ -483,7 +500,7 @@ def test_load_intermediate_data_with_exc(widget):
         assert mock_warning.call_count == 1
 
     assert len(widget.viewer.layers) == 0
-    assert widget.segments == []
+    assert widget.segments == segments
 
 
 @pytest.mark.save_final
@@ -501,7 +518,7 @@ def test_save_final_result(widget, image, segPred, uncertainty, labels,
     widget.save_uncertainty = True
 
     # call the function final_segPred()
-    filename = tmp_path.joinpath('Box32x32_segPredNew.tif')
+    filename = tmp_path.joinpath('Box32x32_segPred_New.tif')
     filename1 = str(filename)
 
     with mock.patch("qtpy.QtWidgets.QFileDialog.getSaveFileName",
@@ -512,7 +529,7 @@ def test_save_final_result(widget, image, segPred, uncertainty, labels,
     loaded_data = imread(filename)
     assert np.array_equal(loaded_data, segPred)
 
-    filename = filename.with_name('Box32x32_uncertaintyNew.tif')
+    filename = filename.with_name('Box32x32_uncertainty_New.tif')
     loaded_data = imread(filename)
     assert np.array_equal(loaded_data, uncertainty)
 
@@ -525,16 +542,16 @@ def test_save_final_result_with_exc(widget, tmp_path):
     widget.uncertainty      = np.random.rand(3, 3, 3)
     widget.labels           = np.ones((3, 3, 3), dtype=np.int32)
     widget.parent           = tmp_path
-    widget.stem1            = 'test_save_IM'
-    widget.stem2            = 'test_save_segPred'
+    widget.stem1            = 'Test_IM'
+    widget.stem2            = 'Test_segPred'
     widget.save_uncertainty = True
 
-    filename1 = tmp_path.joinpath('test_save_segPred.tif')
-    filename2 = filename1.with_name('test_save_uncertainty.tif')
+    filename1 = tmp_path.joinpath('Test_segPred_New.tif')
+    filename2 = filename1.with_name('test_uncertainty_New.tif')
 
     with mock.patch("qtpy.QtWidgets.QFileDialog.getSaveFileName",
             return_value=(str(filename1), None)), \
-        mock.patch("vessqc._widget.imwrite", side_effect=BaseException(
+        mock.patch("vessqc._widget.imwrite", side_effect=OSError(
             "Save result error")), \
         mock.patch.object(QMessageBox, "warning") as mock_warning:
         # Patch of the "warning" method of the "QMessageBox" class
@@ -594,7 +611,9 @@ def test_show_info_labels(widget, capsys):
 
     assert "layer: TestLabels" in captured.out
     assert "type: <class 'numpy.ndarray'>" in captured.out
-    assert "shape: (3, 3, 3)" in captured.out
     assert "dtype: int32" in captured.out
+    assert "size: 27" in captured.out
+    assert "ndim: 3" in captured.out
+    assert "shape: (3, 3, 3)" in captured.out
     assert "values:" in captured.out
     assert "counts:" in captured.out
