@@ -41,10 +41,11 @@ ExampleQWidget
 # (03.05.2024)
 
 import copy
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from joblib import Parallel, delayed
 import json
 from .multiple_viewer_widget import MultipleViewerWidget, CrossWidget
+from ._models import Segment
 import numpy as np
 import napari
 from pathlib import Path
@@ -68,7 +69,7 @@ import SimpleITK as sitk
 import tempfile
 from tifffile import imread, imwrite
 import time
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import napari
@@ -479,36 +480,6 @@ def _build_filename(stem: str, suffix: str):
     # (24.04.2026)
     temp = Path(tempfile.gettempdir())
     return temp.joinpath(stem).with_suffix(suffix)
-
-
-@dataclass
-class Segment:
-    """
-    Metadata for a segmented vessel region.
-
-    Attributes
-    ----------
-    name : str
-        Display name of the segment.
-    label : int
-        Unique label value in the label volume.
-    uncertainty : float
-        Uncertainty assigned to the segment.
-    count : int
-        Number of voxels in the segment.
-    coords : list | None
-        Bounding box coordinates of the cropped region.
-    done : bool
-        True if the segment has already been processed.
-    """
-
-    # (29.04.2026)
-    name: str
-    label: str
-    uncertainty: float
-    count: int
-    coords: Optional[list] = None
-    done: bool = False
 
 
 class ExampleQWidget(QWidget):
