@@ -1,6 +1,6 @@
 """
-_models.py
-==========
+models.py
+=========
 
 Data class for the metadata of segmented vessel region.
 

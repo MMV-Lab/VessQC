@@ -1,6 +1,6 @@
 """
-_segmentation.py
-================
+segmentation.py
+===============
 
 Functions for uncertainty-based segmentation and segment processing.
 
@@ -23,7 +23,7 @@ create_segments
 # (07.05.2026)
 
 from joblib import Parallel, delayed
-from ._models import Segment
+from .models import Segment
 import numpy as np
 from scipy import ndimage
 

@@ -6,7 +6,7 @@ from ._widget import (
     _load_npy,
     _build_filename,
 )
-from ._models import Segment
+from .models import Segment
 
 __all__ = (
     "ExampleQWidget",

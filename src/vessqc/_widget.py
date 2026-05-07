@@ -31,7 +31,7 @@ import copy
 from dataclasses import asdict
 import json
 from .multiple_viewer_widget import MultipleViewerWidget, CrossWidget
-from ._models import Segment
+from .models import Segment
 import numpy as np
 import napari
 from pathlib import Path
@@ -50,7 +50,7 @@ from qtpy.QtWidgets import (
     QWidget,
     QSizePolicy,
 )
-from ._segmentation import (
+from .segmentation import (
     segment_uncertainties,
     merge_labels,
     merge_small_segments,
