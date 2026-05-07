@@ -36,23 +36,6 @@ The plugin is particularly useful for workflows in which:
 
 ![VessQC user interface](docs/images/vessqc_screenshot.png)
 
-Suggested repository structure:
-
-```text
-VessQC/
-├── docs/
-│   └── images/
-│       └── vessqc_screenshot.png
-```
-
-The screenshot should ideally show:
-
-- the main VessQC control panel,
-- the image layer,
-- the segmentation layer,
-- a selected vessel segment,
-- the segment list window.
-
 ---
 
 ## Installation
