@@ -22,15 +22,6 @@ ExampleQWidget
 # (03.05.2024)
 
 import copy
-from dataclasses import asdict
-from .geometry import (
-    compute_bbox,
-    expand_bbox,
-    crop_volumes,
-)
-import json
-from .multiple_viewer_widget import MultipleViewerWidget, CrossWidget
-from .models import Segment
 import numpy as np
 import napari
 from pathlib import Path
@@ -49,18 +40,32 @@ from qtpy.QtWidgets import (
     QWidget,
     QSizePolicy,
 )
+from scipy import ndimage
+import SimpleITK as sitk
+from tifffile import imread, imwrite
+import time
+from typing import TYPE_CHECKING
+
+from .geometry import (
+    compute_bbox,
+    expand_bbox,
+    crop_volumes,
+)
+from .io_utils import (
+    save_npy,
+    load_npy,
+    save_segments,
+    load_segments,
+    build_filename,
+)
+from .multiple_viewer_widget import MultipleViewerWidget, CrossWidget
+from .models import Segment
 from .segmentation import (
     segment_uncertainties,
     merge_labels,
     merge_small_segments,
     create_segments,
 )
-from scipy import ndimage
-import SimpleITK as sitk
-import tempfile
-from tifffile import imread, imwrite
-import time
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import napari
@@ -125,62 +130,6 @@ def focus_viewer(viewer: napari.viewer.Viewer, labels: np.ndarray, label: int,
 
     # Change to the matching color
     layer.selected_label = label
-
-def _save_npy(array: np.ndarray, filename: Path):
-    """
-    Save the array in .npy format
-    
-    Parameters
-    ----------
-    array : np.ndarray
-        Data array
-    filename : Path
-        Name of the .npy file
-    """
-
-    # (13.03.2026)
-    print('Save file', filename)
-    with filename.open("wb") as f:
-        np.save(f, array)
-
-def _load_npy(filename: Path):
-    """
-    Load an data array from a .npy file
-
-    Parameters
-    ----------
-    filename : Path
-        Name of the .npy file
-
-    Returns
-    -------
-    np.ndarray
-    """
-
-    # (13.03.2026)
-    print('Read file', filename)
-    with filename.open("rb") as f:
-        return np.load(f)
-
-def _build_filename(stem: str, suffix: str):
-    """
-    Generate a filename
-
-    Parameters
-    ----------
-    stem : str
-        Name of the temporary file
-    suffix : str
-        File name extension
-
-    Returns
-    -------
-        Name of the temporary file
-    """
-
-    # (24.04.2026)
-    temp = Path(tempfile.gettempdir())
-    return temp.joinpath(stem).with_suffix(suffix)
 
 
 class ExampleQWidget(QWidget):
@@ -452,7 +401,7 @@ class ExampleQWidget(QWidget):
             3D array with uncertainty data
         """
 
-        # (09.08.2024, revised on 03.07.2025; 18.02.2026)
+        # (09.08.2024, revised 03.07.2025, 18.02.2026)
         t0 = time.time()                # UNIX timestamp
         print('The segmentation will take some time.')
 
@@ -708,21 +657,16 @@ class ExampleQWidget(QWidget):
 
         try:
             stem = base + '_segPred'
-            _save_npy(self.segPred, _build_filename(stem, '.npy'))
+            save_npy(self.segPred, build_filename(stem, '.npy'))
 
             stem = base + '_uncertainty'
-            _save_npy(self.uncertainty, _build_filename(stem, '.npy'))
+            save_npy(self.uncertainty, build_filename(stem, '.npy'))
 
             stem = base + '_labels'
-            _save_npy(self.labels, _build_filename(stem, '.npy'))
+            save_npy(self.labels, build_filename(stem, '.npy'))
 
             stem = base + '_segments'
-            filename = _build_filename(stem, '.json')
-
-            print('Save file', filename)
-            with filename.open('w', encoding='utf-8') as f:
-                json.dump([asdict(seg) for seg in self.segments], f, indent=2)
-
+            save_segments(self.segments, build_filename(stem, '.json'))
         except OSError as error:
             QMessageBox.warning(self, 'I/O Error:', str(error))
 
@@ -734,25 +678,16 @@ class ExampleQWidget(QWidget):
 
         try:
             stem2 = base + '_segPred'
-            self.segPred = _load_npy(_build_filename(stem2, '.npy'))
+            self.segPred = load_npy(build_filename(stem2, '.npy'))
 
             stem = base + '_uncertainty'
-            self.uncertainty = _load_npy(_build_filename(stem, '.npy'))
+            self.uncertainty = load_npy(build_filename(stem, '.npy'))
 
             stem = base + '_labels'
-            self.labels = _load_npy(_build_filename(stem, '.npy'))
+            self.labels = load_npy(build_filename(stem, '.npy'))
 
             stem = base + '_segments'
-            filename = _build_filename(stem, '.json')
-
-            print('Read file', filename)
-            with filename.open('r', encoding='utf-8') as f:
-                data = json.load(f)
-
-            # Reconstruct Segment objects by unpacking the dictionary
-            # entries as keyword arguments into the Segment constructor.
-            self.segments = [Segment(**seg) for seg in data]
-
+            self.segments = load_segments(build_filename(stem, '.json'))
         except OSError as error:
             QMessageBox.warning(self, 'I/O Error:', str(error))
             return

@@ -1,9 +1,13 @@
+"""
+test_widget.py
+==============
+
+Functions for Pytest
+"""
+
 # Copyright © Peter Lampen, ISAS Dortmund, 2024
 # (12.09.2024)
 
-import builtins
-from dataclasses import asdict
-import json
 import napari
 import numpy as np
 from pathlib import Path
@@ -24,35 +28,23 @@ from qtpy.QtWidgets import (
     QWidget,
     QWidgetItem,
 )
-import tempfile
 from tifffile import imread, imwrite
 from unittest import mock
+
+from ..io_utils import (
+    save_npy,
+    load_npy,
+    save_segments,
+    load_segments,
+    build_filename,
+)
+from ..multiple_viewer_widget import MultipleViewerWidget, CrossWidget
 from vessqc import (
     ExampleQWidget,
     Segment,
-    _save_npy,
-    _load_npy,
-    _build_filename,
 )
-from ..multiple_viewer_widget import MultipleViewerWidget, CrossWidget
 
 DATA = Path(__file__).parent / '_data'      # Constant with the _data path
-
-def normalize_for_json(data):
-    # Suggestion from ChatGPT
-    import numpy as np
-    if isinstance(data, dict):
-        return {k: normalize_for_json(v) for k, v in data.items()}
-    elif isinstance(data, list):
-        return [normalize_for_json(v) for v in data]
-    elif isinstance(data, (np.integer, np.int32, np.int64)):
-        return int(data)
-    elif isinstance(data, (np.floating, np.float32, np.float64)):
-        return float(data)
-    elif isinstance(data, np.ndarray):
-        return data.tolist()
-    else:
-        return data
 
 # make_napari_viewer is a pytest fixture that returns a napari viewer object
 # you don't need to import it, as long as napari is installed in your
@@ -88,69 +80,54 @@ def widget(make_napari_viewer, qtbot):
 # define fixtures for the image data
 @pytest.fixture
 def image():
-    filename = DATA / 'Box32x32_IM.tif'
-    return imread(filename)
+    return imread(DATA / 'Box32x32_IM.tif')
 
 @pytest.fixture
 def segPred():
-    filename = DATA / 'Box32x32_segPred.tif'
-    return imread(filename)
+    return imread(DATA / 'Box32x32_segPred.tif')
 
 @pytest.fixture
 def segPredNew():
     # (24.09.2024)
-    filename = DATA / 'Box32x32_segPredNew.tif'
-    return imread(filename)
+    return imread(DATA / 'Box32x32_segPredNew.tif')
 
 @pytest.fixture
 def cropped_segPred():
-    filename = DATA / 'Cropped_segPred.tif'
-    return imread(filename)
+    return imread(DATA / 'Cropped_segPred.tif')
 
 @pytest.fixture
 def uncertainty():
-    filename = DATA / 'Box32x32_uncertainty.tif'
-    return imread(filename)
+    return imread(DATA / 'Box32x32_uncertainty.tif')
 
 @pytest.fixture
 def uncertaintyNew():
     # (26.09.2024)
-    filename = DATA / 'Box32x32_uncertaintyNew.tif'
-    return imread(filename)
+    return imread(DATA / 'Box32x32_uncertaintyNew.tif')
 
 @pytest.fixture
 def labels():
     # (05.08.2024)
-    filename = DATA / 'labels.tif'
-    return imread(filename)
+    return imread(DATA / 'labels.tif')
 
 @pytest.fixture
 def labelsNew():
     # (05.08.2024)
-    filename = DATA / 'labelsNew.tif'
-    return imread(filename)
+    return imread(DATA / 'labelsNew.tif')
 
 @pytest.fixture
 def segment_4():
     # (20.09.2024)
-    filename = DATA / 'Segment_4.tif'
-    return imread(filename)
+    return imread(DATA / 'Segment_4.tif')
 
 @pytest.fixture
 def segment_4New():
     # (24.09.2024)
-    filename = DATA / 'Segment_4New.tif'
-    return imread(filename)
+    return imread(DATA / 'Segment_4New.tif')
 
 @pytest.fixture
 def segments():
-    # (01.08.2025, revised 30.04.2026)
-    filename = DATA / 'segments.json'
-    with filename.open('r', encoding='utf-8') as f:
-        data = json.load(f)
-
-    # Reconstruct Segment objects from JSON dictionaries.
-    segments = [Segment(**seg) for seg in data]
+    # (01.08.2025, revised 07.05.2026)
+    segments = load_segments(DATA / 'segments.json')
     return segments
 
 
@@ -215,25 +192,13 @@ def test_read_segPred(widget, segPred, uncertainty):
 
 @pytest.mark.find_segments
 def test_find_segments(widget, uncertainty, labels, segments):
-    # (17.09.2024)
+    # (17.09.2024, revised 07.05.2026)
     viewer = widget.viewer
     widget.find_segments(uncertainty)
 
-    # For comparison purposes, the data must be standardized.
-    actual_segments = normalize_for_json(widget.segments)
-
-    regenerate_reference = False
-    if regenerate_reference:
-        # Save the reference data as a JSON file
-        filename = DATA / 'segments.json'
-        with filename.open('w', encoding='utf-8') as file:
-            json.dump(actual_segments, file, indent=2)
-        pytest.skip('Reference data has been regenerated.')
-
     assert np.array_equal(widget.labels, labels)
     assert len(widget.segments) == 9
-    assert actual_segments == segments, \
-        "The current data does not match the stored JSON."
+    assert widget.segments == segments
 
     layer = viewer.layers['Segmentation']
     assert np.array_equal(layer.data, labels)
@@ -387,25 +352,19 @@ def test_save_intermediate_data(widget, segPred, uncertainty, labels, segments):
 
     base = 'Box32x32'
     stem = base + '_segPred'
-    loaded_data = _load_npy(_build_filename(stem, '.npy'))
+    loaded_data = load_npy(build_filename(stem, '.npy'))
     assert np.array_equal(loaded_data, segPred)
 
     stem = base + '_uncertainty.npy'
-    loaded_data = _load_npy(_build_filename(stem, '.npy'))
+    loaded_data = load_npy(build_filename(stem, '.npy'))
     assert np.array_equal(loaded_data, uncertainty)
 
     stem = base + '_labels.npy'
-    loaded_data = _load_npy(_build_filename(stem, '.npy'))
+    loaded_data = load_npy(build_filename(stem, '.npy'))
     assert np.array_equal(loaded_data, labels)
 
     stem = base + '_segments'
-    filename = _build_filename(stem, '.json')
-
-    print('Read file', filename)
-    with filename.open('r', encoding='utf-8') as f:
-        data = json.load(f)
-    # Reconstruct Segment objects from JSON dictionaries.
-    loaded_data = [Segment(**seg) for seg in data]
+    loaded_data = load_segments(build_filename(stem, '.json'))
     assert loaded_data == segments
 
 
@@ -426,19 +385,19 @@ def test_save_intermediate_data_with_exc(widget, segments):
 
     base = 'Test'
     stem = base + '_segPred'
-    filename = _build_filename(stem, '.npy')
+    filename = build_filename(stem, '.npy')
     assert not filename.exists()
 
     stem = base + '_uncertainty.npy'
-    filename = _build_filename(stem, '.npy')
+    filename = build_filename(stem, '.npy')
     assert not filename.exists()
 
     stem = base + '_labels.npy'
-    filename = _build_filename(stem, '.npy')
+    filename = build_filename(stem, '.npy')
     assert not filename.exists()
 
     stem = base + '_segments'
-    filename = _build_filename(stem, '.json')
+    filename = build_filename(stem, '.json')
     assert not filename.exists()
 
 
@@ -449,20 +408,16 @@ def test_load_intermediate_data(widget, image, segPred, uncertainty, labels,
     # 1st step: save the test data.
     base = 'Box32x32'
     stem = base + '_segPred'
-    _save_npy(segPred, _build_filename(stem, '.npy'))
+    save_npy(segPred, build_filename(stem, '.npy'))
 
     stem = base + '_uncertainty.npy'
-    _save_npy(uncertainty, _build_filename(stem, '.npy'))
+    save_npy(uncertainty, build_filename(stem, '.npy'))
 
     stem = base + '_labels.npy'
-    _save_npy(labels, _build_filename(stem, '.npy'))
+    save_npy(labels, build_filename(stem, '.npy'))
 
     stem = base + '_segments'
-    filename = _build_filename(stem, '.json')
-
-    print('Save file', filename)
-    with filename.open('w', encoding='utf-8') as f:
-        json.dump([asdict(seg) for seg in segments], f, indent=2)
+    save_segments(segments, build_filename(stem, '.json'))
 
     # 2nd step: read the test data
     widget.image = image
