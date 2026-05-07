@@ -1,22 +1,27 @@
 """
-Module for the definition of the class ExampleQWidget
+_widget.py
+==========
 
-Imports
--------
-napari, numpy, pathlib.Path, qtpy.QtCore.QSize, qtpy.QtCore.QT, qtpy.QtWidgets,
-scipy.ndimage, SimpleITK, tifffile.imread, tifffile.imwrite
+This module contains a Napari plugin that can be used to check and correct
+3D views of blood vessels.
 
-Exports
+Functions
+---------
+display_cropped
+    Plotting in Napari
+focus_viewer
+    Focus the camera
+
+Classes
 -------
 ExampleQWidget
+    Class for displaying and correcting a 3D image of blood vessels.
 """
 
 # Copyright © Peter Lampen, ISAS Dortmund, 2024
 # (03.05.2024)
 
 import copy
-from joblib import Parallel, delayed
-import json
 import numpy as np
 import napari
 from pathlib import Path
@@ -37,207 +42,224 @@ from qtpy.QtWidgets import (
 )
 from scipy import ndimage
 import SimpleITK as sitk
-import tempfile
 from tifffile import imread, imwrite
 import time
 from typing import TYPE_CHECKING
 
+from .geometry import (
+    compute_bbox,
+    expand_bbox,
+    crop_volumes,
+)
+from .io_utils import (
+    save_npy,
+    load_npy,
+    save_segments,
+    load_segments,
+    build_filename,
+)
+from .multiple_viewer_widget import MultipleViewerWidget, CrossWidget
+from .models import Segment
+from .segmentation import (
+    segment_uncertainties,
+    merge_labels,
+    merge_small_segments,
+    create_segments,
+)
+
 if TYPE_CHECKING:
     import napari
 
+def display_cropped(viewer: napari.viewer.Viewer, stem1: str, stem2: str,
+    segment_name: str, cropped: dict):
+    """
+    Plotting in Napari
 
-def _label_value_sparse(uncertainty, uncert, tolerance, structure, value_idx,
-    num_unique_uncert):
-    # Worker side
-    # (03.07.2025)
+    Parameters
+    ----------
+    viewer : napari.viewer.Viewer
+    stem1 : str
+        Name of the input data file
+    stem2 : str
+        Name of the '_segPred' data file
+    segment_name : str
+        Name of the segment
+    croped : dict
+        Dictionary with the keys:
+        - image : np.ndarray
+        - segPred : np.ndarray
+        - labels : np.ndarray
 
-    mask = np.abs(uncertainty - uncert) < tolerance
-    if not np.any(mask):
-        return None
+    Returns
+    -------
+    layer : napari.layers.Layer
+    """
 
-    labeled, num = ndimage.label(mask, structure)   # Segmentation
-    if num == 0:
-        return None
+    # (06.03.2026)
+    name1 = 'Cropped ' + stem1
+    name2 = 'Cropped ' + stem2
 
-    # Calculate global unique labels directly
-    # local labels: 1, 2, 3, ...
-    # global labels: (local - 1) * num_unique_uncert + (value_idx + 1)
-    labeled_global = (labeled - 1) * num_unique_uncert + (value_idx + 1)
-    labeled_global[labeled == 0] = 0
+    viewer.add_image( cropped["image"],   name=name1)
+    viewer.add_labels(cropped["segPred"], name=name2)
 
-    indices = np.where(mask)
-    result = dict(
-        indices       = indices,
-        global_labels = labeled_global[indices],
-        uncert        = uncert,
-        num           = num
-    )
-    return result
+    layer = viewer.add_labels(cropped["labels"], name=segment_name)
 
-def jsonify(obj):
-    if isinstance(obj, np.ndarray):
-        return obj.tolist()
-    if isinstance(obj, (np.integer, np.floating)):
-        return obj.item()
-    if isinstance(obj, tuple):
-        return [jsonify(x) for x in obj]
-    if isinstance(obj, dict):
-        return {k: jsonify(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [jsonify(x) for x in obj]
-    return obj
+    return layer
+
+def focus_viewer(viewer: napari.viewer.Viewer, labels: np.ndarray, label: int,
+    layer: napari.layers.Layer):
+    """
+    Focus the camera
+
+    Parameters
+    ----------
+    viewer : napari.viewer.Viewer
+    labels : np.ndarray
+        3D array with segmentation labels
+    label : int
+        selected label
+    layer : napari.layers.Layer
+    """
+
+    # (06.03.2026)
+    center_of_mass = ndimage.center_of_mass(labels)
+    center_of_mass = tuple(int(round(c)) for c in center_of_mass)
+
+    viewer.dims.current_step = center_of_mass
+    viewer.camera.center = center_of_mass
+
+    # Change to the matching color
+    layer.selected_label = label
 
 
 class ExampleQWidget(QWidget):
     """
-    Main widget of a Napari plugin for checking the calculation of blood vessels
+    Class for displaying and correcting a 3D image of blood vessels
+
+    Parameters
+    ----------
+    napari_viewer : napari.viewer.Viewer
 
     Attributes
     ----------
-    viewer : class napari.viewer
+    viewer : napari.viewer.Viewer
         Napari viewer
-    start_multiple_viewer : bool
-        Call the multiple viewer and the cross widget?
+    segments : List
+        List of Segments
     save_uncertainty : bool
         Save the file 'Uncertainty.tif'?
-    areas : dict
-        Contains information about the various areas
+    dock_widget : MultipleViewerWidget
+        MultipleViewerWidget from multiple_viewer_widget.py
+    cross : QCheckBox
+        Widget for displaying a crosshair
     parent : str
-        Directory of data files
-    suffix : str
-        Extension of the data file (e.g '.tif')
-    is_tifffile : bool
-        Is the file extension '.tif' or '.tiff'?
-    image : numpy.ndarray
+        Directory of the data files
+    stem1 : str
+        Name of the input data file
+    stem2 : str
+        Name of the '_segPred' data file
+    stem3 : str
+        Name of the '_uncertainty' data file
+    image : np.ndarray
         3D array with image data
-    segPred : numpy.ndarray
-        3D array with the vessel data
-    uncertainty : numpy.ndarray
-        3D array with uncertainties
+    segPred : np.ndarray
+        3D array with the predicted segmentation data
+    uncertainty : np.ndarray
+        3D array with uncertainty data
+    labels : np.ndarray
+        3D array with segmentation labels
     popup_window : QWidget
         Pop up window with uncertainty values
-
-    Methods
-    -------
-    __init__(viewer: "napari.viewer.Viewer")
-        Class constructor
-    load_image()
-        Read the image file and save it in an image layer
-    read_segPred()
-        Read the segPred and uncertanty data and save it in a label and an
-        image layer
-    find_segments(uncertainty: np.ndarray)
-        Define areas that correspond to values of equal uncertainty
-    show_popup_window()
-        Define a pop-up window for the uncertainty list
-    new_entry(segment: dict, grid_layout: QGridLayout, i: int):
-        New entry for 'Area n' in the grid layout
-    show_area()
-        Show the data for a specific uncertanty in a new label layer
-    done()
-        Transfer data from the area to the segPred and uncertainty layer
-        and close the layer for the area
-    re_enable()
-        Re-enable the data of a specific segment in the pop-up window
-    compare_and_transfer(name: str)
-        Compare old and new data of an area and transfer the changes to the
-        segPred and uncertainty data
-    save_intermediate_data()
-        Save the segPred and uncertainty data to files on hard drive
-    load_intermediate_data()
-        Read the segPred and uncertainty data from files on hard drive
-    save_final_result()
-        Close all open area layers, close the pop-up window, save the
-        segPred and if applicable also the uncertainty data to files on
-        hard drive
-    cbx_save_uncertainty(state: Qt.Checked)
-        Toggle the bool variable save_uncertainty
-    show_info()
-        Show information about the current layer
     """
 
-    def __init__(self, viewer: "napari.viewer.Viewer"):
+    def __init__(self, napari_viewer: "napari.viewer.Viewer"):
         """
         Class constructor
 
         Parameter
         ---------
-        viewer : widget
-            napari.viewer
+        napari_viewer : napari.viewer.Viewer
         """
 
         # (03.05.2024)
         super().__init__()
-        self.viewer = viewer
+        self.viewer = napari_viewer
         self.segments = []
         self.save_uncertainty = False
 
         # Define the layout of the main widget
-        self.setLayout(QVBoxLayout())
+        layout = QVBoxLayout(self)
 
         # Define some labels and buttons
         label1 = QLabel('Vessel quality check')
         font = label1.font()
         font.setPointSize(12)
         label1.setFont(font)
-        self.layout().addWidget(label1)
+        layout.addWidget(label1)
 
         btnLoadImage = QPushButton('Load image')
         btnLoadImage.clicked.connect(self.load_image)
-        self.layout().addWidget(btnLoadImage)
+        layout.addWidget(btnLoadImage)
 
         btnSegPred = QPushButton('Read segPred file')
         btnSegPred.clicked.connect(self.read_segPred)
-        self.layout().addWidget(btnSegPred)
+        layout.addWidget(btnSegPred)
 
         btnShowUncert = QPushButton('Show uncertainty data')
         btnShowUncert.clicked.connect(self.show_uncertainty)
-        self.layout().addWidget(btnShowUncert)
+        layout.addWidget(btnShowUncert)
 
         # Test output
         btnInfo = QPushButton('Info')
         btnInfo.clicked.connect(self.show_info)
-        self.layout().addWidget(btnInfo)
+        layout.addWidget(btnInfo)
 
         label2 = QLabel('_______________')
         label2.setAlignment(Qt.AlignHCenter)
-        self.layout().addWidget(label2)
+        layout.addWidget(label2)
 
         label3 = QLabel('Curation')
         label3.setFont(font)
-        self.layout().addWidget(label3)
+        layout.addWidget(label3)
 
         btnPopupWindow = QPushButton('Show list of segments')
         btnPopupWindow.clicked.connect(self.show_popup_window)
-        self.layout().addWidget(btnPopupWindow)
+        layout.addWidget(btnPopupWindow)
 
         btnSaveIntermediate = QPushButton('Save intermediate data')
         btnSaveIntermediate.clicked.connect(self.save_intermediate_data)
-        self.layout().addWidget(btnSaveIntermediate)
+        layout.addWidget(btnSaveIntermediate)
 
         btnLoadIntermediate = QPushButton('Load intermediate data')
         btnLoadIntermediate.clicked.connect(self.load_intermediate_data)
-        self.layout().addWidget(btnLoadIntermediate)
+        layout.addWidget(btnLoadIntermediate)
 
         label4 = QLabel('_______________')
         label4.setAlignment(Qt.AlignHCenter)
-        self.layout().addWidget(label4)
+        layout.addWidget(label4)
 
         btnSaveResult = QPushButton('Save final result')
         btnSaveResult.clicked.connect(self.save_final_result)
-        self.layout().addWidget(btnSaveResult)
+        layout.addWidget(btnSaveResult)
 
         cbxSaveUncertainty = QCheckBox('Save uncertainty')
         cbxSaveUncertainty.stateChanged.connect(self.checkbox_save_uncertainty)
-        self.layout().addWidget(cbxSaveUncertainty)
+        layout.addWidget(cbxSaveUncertainty)
+
+        # Insert the Napari “Multiple Viewer Widget”
+        self.dock_widget = MultipleViewerWidget(self.viewer, parent=self)
+        self.viewer.window.add_dock_widget(self.dock_widget, name='Sample')
+
+        # Add the cross widget (on the left in the viewer area)
+        self.cross = CrossWidget(self.viewer, parent=self)
+        self.viewer.window.add_dock_widget(self.cross, name='Cross', area='left')
+
+        self.setLayout(layout)
 
     def load_image(self):
-        """
-        Read the image file and save it in an image layer
-        """
+        """Read the image file and store it in an image layer"""
 
         # (23.05.2024);
-
         # Find and load the image file
         filter1 = "TIFF files (*.tif *.tiff);;NIfTI files (*.nii *.nii.gz);;\
             All files (*.*)"
@@ -250,15 +272,15 @@ class ExampleQWidget(QWidget):
             return
 
         filename = Path(filename)
-        self.parent = filename.parent           # The data directory
-        self.stem1  = filename.stem             # Name of the input file
+        self.parent = filename.parent           # The image directory
+        self.stem1  = filename.stem             # Name of the image file
         suffix      = filename.suffix.lower()   # File extension
         # Truncate the extension .nii
         if suffix == '.gz' and self.stem1[-4:] == '.nii':
             self.stem1 = self.stem1[:-4]
 
         # Load the image file
-        print('Load', filename)
+        print('Load file', filename)
         try:
             if suffix == '.tif' or suffix == '.tiff':
                 self.image = imread(filename)
@@ -278,13 +300,14 @@ class ExampleQWidget(QWidget):
 
     def read_segPred(self):
         """
-        Read the segPred and uncertanty data and save it in a label and an
-        image layer
+        Read the _segPred and _uncertainty data and save it in a label and an
+        image layer.
         """
 
         # (23.05.2024, revised on 05.02.2025)
         # Search for the segPred file
-        self.stem2 = self.stem1[:-3] + '_segPred'   # Replace _IM by _segPred
+        base = self.stem1.removesuffix('_IM')
+        self.stem2 = base + '_segPred'
         filename = self.parent.joinpath(self.stem2)
 
         if filename.with_suffix('.tif').is_file():
@@ -305,7 +328,7 @@ class ExampleQWidget(QWidget):
             return
 
         # Read the segPred file
-        print('Load', filename)
+        print('Load file', filename)
         try:
             if suffix == '.tif' or suffix == '.tiff':
                 self.segPred = imread(filename)
@@ -320,7 +343,7 @@ class ExampleQWidget(QWidget):
         self.viewer.add_labels(self.segPred, name=self.stem2)
 
         # Search for the uncertainty file
-        self.stem3 = self.stem1[:-3] + '_uncertainty'
+        self.stem3 = base + '_uncertainty'
         filename = self.parent.joinpath(self.stem3)
 
         if filename.with_suffix('.tif').is_file():
@@ -341,7 +364,7 @@ class ExampleQWidget(QWidget):
             return
 
         # Read the uncertainty file
-        print('Load', filename)
+        print('Load file', filename)
         try:
             if suffix == '.tif' or suffix == '.tiff':
                 self.uncertainty = imread(filename)
@@ -358,8 +381,8 @@ class ExampleQWidget(QWidget):
         if self.segments == []:
             self.find_segments(self.uncertainty)
 
-    def show_uncertainty(self, uncertainty: np.ndarray):
-        """ Show an image layer with the uncertainty data """
+    def show_uncertainty(self):
+        """Show an image layer with the uncertainty data"""
 
         # (12.08.2025)
         if hasattr(self, 'uncertainty'):
@@ -369,90 +392,39 @@ class ExampleQWidget(QWidget):
             QMessageBox.information(self, 'Note', 'Uncertainty is not defined')
 
     def find_segments(self, uncertainty: np.ndarray):
-        """ Define segments that correspond to values of equal uncertainty """
+        """
+        Define segments that correspond to values of equal uncertainty
 
-        # (09.08.2024, revised on 03.07.2025)
+        Parameters
+        ----------
+        uncertainty : np.ndarray
+            3D array with uncertainty data
+        """
+
+        # (09.08.2024, revised 03.07.2025, 18.02.2026)
         t0 = time.time()                # UNIX timestamp
         print('The segmentation will take some time.')
 
-        unique_uncertainties = np.unique(uncertainty)
-        unique_uncertainties = unique_uncertainties[unique_uncertainties > 0]
-        num_unique_uncert = len(unique_uncertainties)
-        tolerance = 1e-2
-        structure = np.ones((3, 3, 3), dtype=int)   # Connectivity
+        # 1st: Segmentation
+        results = segment_uncertainties(uncertainty)
 
-        results = Parallel(n_jobs=-1)(
-            delayed(_label_value_sparse)(
-                uncertainty, uncert, tolerance, structure, idx,
-                num_unique_uncert
-            )
-            for idx, uncert in enumerate(unique_uncertainties)
-        )
+        # 2nd: Merge labels
+        self.labels, uncert_values = merge_labels(results, uncertainty.shape)
 
-        self.labels = np.zeros_like(uncertainty, dtype=int)
-        uncert_values = {0: 0.0}    # Dictionary of all uncertanty values
+        # 3rd: filter small segments
+        self.labels, uncert_values = merge_small_segments(self.labels,
+            uncert_values, min_size=10)
 
-        for result in results:
-            if result is None:
-                continue
-            indices = result['indices']
-            labels  = result['global_labels']
-            uncert  = result['uncert']
-            num     = result['num']
-
-            self.labels[indices] = labels
-     
-            # Form a dictionary with the uncertainty values that correspond to
-            # the respective labels
-            keys     = list(np.unique(labels))
-            values   = [uncert] * num
-            u_values = dict(zip(keys, values))
-            uncert_values = {**uncert_values, **u_values}
+        #4th: Create Segment classes
+        self.segments = create_segments(self.labels, uncert_values)
 
         print('Done in', time.time() - t0, 's')
 
-        # Determine all labels that appear less than 10 times
-        min_size = 10
-        counts = np.bincount(self.labels.ravel())
-        small_labels = np.where(counts < min_size)[0]
-        small_labels = small_labels[small_labels != 0]
-
-        # Replaces all labels that occur less than 10 times with the value
-        # max(labels) + 1
-        max_label = np.max(self.labels) + 1
-        mask = np.isin(self.labels, small_labels)
-        self.labels[mask] = max_label
-
-        # Create a structure for storing the data
-        unique_labels = np.unique(self.labels)
-        unique_labels = unique_labels[unique_labels != 0]
-        counts = np.bincount(self.labels.ravel())
-        uncert_values[max_label] = 0.9999
-
-        self.segments = list()
-        for label in unique_labels:
-            segment = dict(
-                name        = '',
-                label       = label,
-                uncertainty = uncert_values[label],
-                counts      = counts[label],
-                coords      = None,     # coordinates of cropped image
-                done        = False,
-            )
-            self.segments.append(segment)
-
-        # Sort by 'uncertainty' ascending
-        self.segments.sort(key=lambda x: x['uncertainty'])
-
-        # Determine the names of the segments
-        for i, segment in enumerate(self.segments, start=1):
-            segment['name'] = f"Segment_{i}"
-
-        # Display the segments in an label layer
+        # 4th: Display the segments in an label layer
         self.viewer.add_labels(self.labels, name='Segmentation')
 
     def show_popup_window(self):
-        """ Define a pop-up window for the uncertainty list """
+        """Define a pop-up window for the uncertainty list"""
 
         # (24.05.2024)
         self.popup_window = QWidget()
@@ -475,13 +447,13 @@ class ExampleQWidget(QWidget):
         # add widgets to the group box
         grid_layout.addWidget(QLabel('Segment'), 0, 0)
         grid_layout.addWidget(QLabel('Uncertainty'), 0, 1)
-        grid_layout.addWidget(QLabel('Counts'), 0, 2)
+        grid_layout.addWidget(QLabel('Count'), 0, 2)
         grid_layout.addWidget(QLabel('done'), 0, 3)
 
         # Define buttons and select values for some labels
         for idx, segment in enumerate(self.segments, start=1):
             # Show only the untreated areas
-            if segment['done']:
+            if segment.done:
                 continue
             else:
                 self.new_entry(segment, grid_layout, idx)
@@ -498,12 +470,12 @@ class ExampleQWidget(QWidget):
         idx += 1
         grid_layout.addWidget(QLabel('Segment'), idx, 0)
         grid_layout.addWidget(QLabel('Uncertainty'), idx, 1)
-        grid_layout.addWidget(QLabel('Counts'), idx, 2)
+        grid_layout.addWidget(QLabel('Count'), idx, 2)
         grid_layout.addWidget(QLabel('Re-enable'), idx, 3)
 
         for idx, segment in enumerate(self.segments, start=idx+1):
             # show only the treated areas
-            if segment['done']:
+            if segment.done:
                 self.new_entry(segment, grid_layout, idx)
             else:
                 continue
@@ -511,15 +483,14 @@ class ExampleQWidget(QWidget):
         # Show the pop-up window
         self.popup_window.show()
         
-    def new_entry(self, segment: dict, grid_layout: QGridLayout, idx: int):
+    def new_entry(self, segment: Segment, grid_layout: QGridLayout, idx: int):
         """
         New entry for 'Area n' in the grid layout
 
         Parameters
         ----------
-        segment : dict
-            'name', 'uncertainty', 'counts', 'com', and 'done'
-            for a specific area
+        segment : Segment
+            Metadata of the selected segment
         grid_layout : QGridLayout
             Layout for a QGroupBox
         idx : int
@@ -528,23 +499,23 @@ class ExampleQWidget(QWidget):
 
         # (13.08.2024)
         # Define some buttons and labels
-        button1 = QPushButton(segment['name'])
+        button1 = QPushButton(segment.name)
         button1.clicked.connect(lambda: self.zoom_in(segment, 0.75))
 
-        if segment['done']:
+        if segment.done:
             # disable button1 for treated areas
             button1.setEnabled(False)
         grid_layout.addWidget(button1, idx, 0)
 
-        uncertainty = '%.3f' % (segment['uncertainty'])
+        uncertainty = '%.3f' % (segment.uncertainty)
         label1 = QLabel(uncertainty)
         grid_layout.addWidget(label1, idx, 1)
 
-        counts = '%d' % (segment['counts'])
-        label2 = QLabel(counts)
+        count = '%d' % (segment.count)
+        label2 = QLabel(count)
         grid_layout.addWidget(label2, idx, 2)
 
-        if segment['done']:
+        if segment.done:
             button3 = QPushButton('re-enable')
             button3.clicked.connect(lambda: self.re_enable(segment))
         else:
@@ -552,75 +523,54 @@ class ExampleQWidget(QWidget):
             button3.clicked.connect(lambda: self.done(segment))
         grid_layout.addWidget(button3, idx, 3)
 
-    def zoom_in(self, segment: dict, margin_factor: float):
+    def zoom_in(self, segment: Segment, margin_factor: float):
         """
-        Show a segment and its immediate surroundings in a 3D view.
+        Show a segment and its surroundings in a 3D view
+
+        Parameters
+        ----------
+        segment : Segment
+            Metadata of the selected segment
+        margin_factor : float
+            Factor for enlarging the b_box
         """
 
-        # (25.06.2025)
-        self.viewer.layers.clear()          # Delete all layers in Napari
+        # (25.06.2025, revised 06.03.2026)
+        self.viewer.layers.clear()      # Delete all layers in Napari
 
         # Determine the segment to be displayed
-        label = segment['label']            # target label
-        mask  = (self.labels == label)      # Segment mask
+        label = segment.label           # target label
+        mask  = self.labels == label    # Segment mask
 
-        # Calculate bounding box
-        coords = np.argwhere(mask)
-        minz, miny, minx = coords.min(axis=0)
-        maxz, maxy, maxx = coords.max(axis=0)
-
-        # Enlage box
-        sz, sy, sx = maxz - minz + 1, maxy - miny + 1, maxx - minx + 1
-        size = max(sx, sy, sz)
-        margin = int(size * margin_factor / 2)
-
-        # Limitation to the image
-        shape = self.image.shape
-        startz = max(minz - margin, 0)
-        starty = max(miny - margin, 0)
-        startx = max(minx - margin, 0)
-        endz   = min(maxz + margin + 1, shape[0])
-        endy   = min(maxy + margin + 1, shape[1])
-        endx   = min(maxx + margin + 1, shape[2])
+        # 1st: Calculate bounding box
+        b_box = compute_bbox(mask)
+        b_box = expand_bbox(b_box, self.image.shape, margin_factor)
 
         # Save the coordinates of the cropped image
-        segment['coords'] = [[startz, starty, startx], [endz, endy, endx]]
+        segment.coords = b_box
 
-        # Cropping
-        cropped_image = self.image[startz:endz, starty:endy, startx:endx]
-        cropped_segPred = self.segPred[startz:endz, starty:endy,
-            startx:endx]
-        cropped_labels = self.labels[startz:endz, starty:endy, startx:endx]
+        cropped = crop_volumes(b_box, self.image, self.segPred, self.labels,
+            label)
 
-        # Keep only inside the box
-        masked_labels = np.where(cropped_labels == label, label, 0)
+        layer = display_cropped(self.viewer, self.stem1, self.stem2,
+            segment.name, cropped)
 
-        # Display data in Napari
-        name1 = 'Cropped ' + self.stem1
-        name2 = 'Cropped ' + self.stem2
-        name3 = segment['name']
-        self.viewer.add_image(cropped_image, name=name1)
-        self.viewer.add_labels(cropped_segPred, name=name2)
-        layer = self.viewer.add_labels(masked_labels, name=name3)
+        focus_viewer(self.viewer, cropped["labels"], label, layer)
 
-        # Set the appropriate level and focus
-        com = ndimage.center_of_mass(masked_labels)     # center of mass
-        com = tuple(int(round(c)) for c in com)
-        self.viewer.dims.current_step = com
-        self.viewer.camera.center = com
-
-        # Change to the matching color
-        layer.selected_label = label
-
-    def done(self, segment: dict):
+    def done(self, segment: Segment):
         """
         Transfer data from the segment to the labels, segPred and uncertainty
-        layer and close the layers for the cropped images
+        layer and close the layers for the cropped images.
+
+        Parameters
+        ----------
+        segment : Segment
+            Metadata of the selected segment
         """
 
         # (18.07.2024)
         self.compare_and_transfer(segment)  # transfer of data
-        segment['done'] = True              # mark this area as treated
+        segment.done = True                 # mark this area as treated
 
         # Close cropped images and show image, segPred und labels
         self.viewer.layers.clear()
@@ -631,29 +581,36 @@ class ExampleQWidget(QWidget):
         # open a new pop-up window
         self.show_popup_window()
 
-    def re_enable(self, segment: dict):
-        """ Re-enable the data of a specific area in the pop-up window """
-
-        # (19.07.2024)
-        segment['done'] = False
-        self.show_popup_window()
-
-    def compare_and_transfer(self, segment: dict):
+    def re_enable(self, segment: Segment):
         """
-        Compare old and new data and transfer the changes to the segPred,
-        uncertainty and labels data
+        Re-enable the data of a specific area in the pop-up window.
 
         Parameters
         ----------
-        segment : dict
-            Data of the segment
+        segment : Segment
+            Metadata of the selected segment
+        """
+
+        # (19.07.2024)
+        segment.done = False
+        self.show_popup_window()
+
+    def compare_and_transfer(self, segment: Segment):
+        """
+        Compare old and new data and transfer the changes to the segPred,
+        uncertainty and labels data.
+
+        Parameters
+        ----------
+        segment : Segment
+            Metadata of the selected segment
         """
 
         # (09.08.2024)
-        name        = segment['name']
-        label       = segment['label']
-        uncertainty = segment['uncertainty']
-        coords      = segment['coords']
+        name = segment.name
+        label = segment.label
+        uncertainty = segment.uncertainty
+        coords = segment.coords
 
         # If a label layer with this name exists:
         if any(layer.name == name and isinstance(layer, napari.layers.Labels)
@@ -692,128 +649,68 @@ class ExampleQWidget(QWidget):
 
     def save_intermediate_data(self):
         """
-        Save the segPred, uncertainty and labels data to files on hard drive.
+        Save the segPred, uncertainty and labels data to files on hard drive
         """
 
-        # (26.07.2024)
-        tmp = tempfile.gettempdir()
-        tmp = Path(tmp)
+        # (26.07.2024, revised 24.04.2026)
+        base = self.stem1.removesuffix('_IM')
 
-        # 1st: save the segPred data
-        filename = tmp.joinpath(self.stem2).with_suffix('.npy')
-        print('Save', filename)
         try:
-            with filename.open('wb') as file:
-                np.save(file, self.segPred)
-        except BaseException as error:
-            QMessageBox.warning(self, 'I/O Error:', str(error))
-            return
+            stem = base + '_segPred'
+            save_npy(self.segPred, build_filename(stem, '.npy'))
 
-        # 2nd: save the uncertainty data
-        filename = tmp.joinpath(self.stem3).with_suffix('.npy')
-        print('Save', filename)
-        try:
-            with filename.open('wb') as file:
-                np.save(file, self.uncertainty)
-        except BaseException as error:
-            QMessageBox.warning(self, 'I/O Error:', str(error))
-            return
+            stem = base + '_uncertainty'
+            save_npy(self.uncertainty, build_filename(stem, '.npy'))
 
-        # 3rd: save the labels
-        stem4 = self.stem1[:-3] + '_labels'
-        filename = tmp.joinpath(stem4).with_suffix('.npy')
-        print('Save', filename)
-        try:
-            with filename.open('wb') as file:
-                np.save(file, self.labels)
-        except BaseException as error:
-            QMessageBox.warning(self, 'I/O Error:', str(error))
-            return
+            stem = base + '_labels'
+            save_npy(self.labels, build_filename(stem, '.npy'))
 
-        # 4th: save the segments dictionary
-        stem5 = self.stem1[:-3] + '_segments'
-        filename = tmp.joinpath(stem5).with_suffix('.json')
-        print('Save', filename)
-        try:
-            with filename.open('w', encoding='utf-8') as file:
-                json.dump(jsonify(self.segments), file, indent=2)
-        except BaseException as error:
+            stem = base + '_segments'
+            save_segments(self.segments, build_filename(stem, '.json'))
+        except OSError as error:
             QMessageBox.warning(self, 'I/O Error:', str(error))
 
     def load_intermediate_data(self):
-        """ Read the segPred and uncertainty data from files on hard drive """
+        """Read the segPred and uncertainty data from files on hard drive"""
 
-        # (30.07.2024)
-        tmp = tempfile.gettempdir()
-        tmp = Path(tmp)
+        # (30.07.2024, revised 28.04.2026)
+        base = self.stem1.removesuffix('_IM')
 
-        # 1st: read the segPred data
-        if not hasattr(self, 'stem2'):
-            self.stem2 = self.stem1[:-3] + '_segPred'
-
-        filename = tmp.joinpath(self.stem2).with_suffix('.npy')
-        print('Read', filename)
         try:
-            with filename.open('rb') as file:
-                self.segPred = np.load(file)
-        except BaseException as error:
-            QMessageBox.warning(self, 'I/O Error:', str(error))
-            return
+            stem2 = base + '_segPred'
+            self.segPred = load_npy(build_filename(stem2, '.npy'))
 
-        # 2st: read the uncertainty data
-        if not hasattr(self, 'stem3'):
-            self.stem3 = self.stem1[:-3] + '_uncertainty'
+            stem = base + '_uncertainty'
+            self.uncertainty = load_npy(build_filename(stem, '.npy'))
 
-        filename = tmp.joinpath(self.stem3).with_suffix('.npy')
-        print('Read', filename)
-        try:
-            with filename.open('rb') as file:
-                self.uncertainty = np.load(file)
-        except BaseException as error:
-            QMessageBox.warning(self, 'I/O Error:', str(error))
-            return
+            stem = base + '_labels'
+            self.labels = load_npy(build_filename(stem, '.npy'))
 
-        # 3rd: read the labels
-        stem4 = self.stem1[:-3] + '_labels'
-        filename = tmp.joinpath(stem4).with_suffix('.npy')
-        print('Read', filename)
-        try:
-            with filename.open('rb') as file:
-                self.labels = np.load(file)
-        except BaseException as error:
-            QMessageBox.warning(self, 'I/O Error:', str(error))
-            return
-
-        # 4th: read the segments dictionary
-        stem5 = self.stem1[:-3] + '_segments'
-        filename = tmp.joinpath(stem5).with_suffix('.json')
-        print('Read', filename)
-        try:
-            with filename.open('r', encoding='utf-8') as file:
-                self.segments = json.load(file)
-        except BaseException as error:
+            stem = base + '_segments'
+            self.segments = load_segments(build_filename(stem, '.json'))
+        except OSError as error:
             QMessageBox.warning(self, 'I/O Error:', str(error))
             return
 
         # Close cropped images and show image, segPred und labels
         self.viewer.layers.clear()
         self.viewer.add_image(self.image, name=self.stem1)
-        self.viewer.add_labels(self.segPred, name=self.stem2)
+        self.viewer.add_labels(self.segPred, name=stem2)
         self.viewer.add_labels(self.labels, name='Segmentation')
 
     def save_final_result(self):
         """
         Close all open segment layers, save the segPred and if applicable also
-        the uncertainty data to files on hard drive
+        the uncertainty data to files on hard drive.
         """
 
         # (13.08.2024)
         # 1st: close the open segment layer
-        lst = [layer for layer in self.viewer.layers
+        segment_layers = [layer for layer in self.viewer.layers
             if layer.name.startswith('Segment_') and
             isinstance(layer, napari.layers.Labels)]
 
-        for layer in lst:
+        for layer in segment_layers:
             name = layer.name
             print('Close', name)
 
@@ -821,13 +718,14 @@ class ExampleQWidget(QWidget):
             segment = next((s for s in self.segments if s['name'] == name), None)
             if segment is not None:
                 self.compare_and_transfer(segment)
-                segment['done'] = True
+                segment.done = True
 
         # 2nd: build a filename for the segPredNew data
-        stem4 = self.stem1[:-3] + '_segPredNew'
-        filename = self.parent.joinpath(stem4).with_suffix('.tif')
+        base = self.stem1.removesuffix('_IM')
+        stem = base + '_segPred_New'
+        filename = self.parent.joinpath(stem).with_suffix('.tif')
         default_filename = str(filename)
-        filename, _ = QFileDialog.getSaveFileName(self, 'Save _segPredNew file',
+        filename, _ = QFileDialog.getSaveFileName(self, 'Save _segPred_New file',
              default_filename, 'TIFF files (*.tif *.tiff)')
         if filename == '':                      # Cancel button has been pressed
             QMessageBox.information(self, 'Cancel button',
@@ -835,20 +733,20 @@ class ExampleQWidget(QWidget):
             return
 
         # 3rd: Save the segPredNew data
-        print('Save', filename)
+        print('Save file', filename)
         try:
             imwrite(filename, self.segPred)
-        except BaseException as error:
+        except OSError as error:
             QMessageBox.warning(self, 'I/O Error:', str(error))
             return
 
         # 4th: Save the uncertaintyNew data
         if self.save_uncertainty:
-            filename = filename[:-15] + '_uncertaintyNew.tif'
-            print('Save', filename)
+            filename = filename[:-16] + '_uncertainty_New.tif'
+            print('Save file', filename)
             try:
                 imwrite(filename, self.uncertainty)
-            except BaseException as error:
+            except OSError as error:
                 QMessageBox.warning(self, 'I/O Error:', str(error))
 
         # Close cropped images and show image, segPred und labels
@@ -857,8 +755,15 @@ class ExampleQWidget(QWidget):
         self.viewer.add_labels(self.segPred, name=self.stem2)
         self.viewer.add_labels(self.labels, name='Segmentation')
 
-    def checkbox_save_uncertainty(self, state: Qt.Checked):
-        """ Toggle the bool variable save_uncertainty """
+    def checkbox_save_uncertainty(self, state: int):
+        """
+        Toggle the bool variable save_uncertainty
+
+        Parameters
+        ----------
+        state : int
+            Qt.Checked or Qt.Unchecked
+        """
 
         if state == Qt.Checked:
             self.save_uncertainty = True
@@ -866,7 +771,7 @@ class ExampleQWidget(QWidget):
             self.save_uncertainty = False
 
     def show_info(self):
-        """ Show information about the current layer """
+        """Show information about the current layer"""
 
         # (25.07.2024)
         layer = self.viewer.layers.selection.active
