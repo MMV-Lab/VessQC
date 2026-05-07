@@ -7,15 +7,9 @@ This module contains a Napari plugin that can be used to check and correct
 
 Functions
 ---------
-_compute_bbox
-    Determine a bounding box
-_expand_bbox
-    Enlarge the bounding box
-_crop_volumes
-    Cropping the data
-_display_cropped
+display_cropped
     Plotting in Napari
-_focus_viewer
+focus_viewer
     Focus the camera
 
 Classes
@@ -29,6 +23,11 @@ ExampleQWidget
 
 import copy
 from dataclasses import asdict
+from .geometry import (
+    compute_bbox,
+    expand_bbox,
+    crop_volumes,
+)
 import json
 from .multiple_viewer_widget import MultipleViewerWidget, CrossWidget
 from .models import Segment
@@ -66,100 +65,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import napari
 
-def _compute_bbox(mask: np.ndarray):
-    """Determine a bounding box"""
-
-    # (06.03.2026)
-    coords = np.argwhere(mask)
-
-    min_z, min_y, min_x = coords.min(axis=0)
-    max_z, max_y, max_x = coords.max(axis=0)
-
-    return [[min_z, min_y, min_x], [max_z, max_y, max_x]]
-
-def _expand_bbox(b_box: list, shape: tuple, margin_factor: float):
-    """
-    Enlarge the bounding box
-
-    Parameters
-    ----------
-    b_box : list
-        Bounding box
-    shape : tuple
-        Shape of the image
-    margin_factor : float
-        Factor for enlarging the b_box
-
-    Returns
-    -------
-    b_box : list
-        Updated bounding box
-    """
-
-    # (06.03.2026)
-    (min_z, min_y, min_x), (max_z, max_y, max_x) = b_box
-
-    size_z = max_z - min_z + 1
-    size_y = max_y - min_y + 1
-    size_x = max_x - min_x + 1
-
-    size = max(size_x, size_y, size_z)
-    margin = int(size * margin_factor / 2)
-
-    start_z = max(min_z - margin, 0)
-    start_y = max(min_y - margin, 0)
-    start_x = max(min_x - margin, 0)
-
-    end_z   = min(max_z + margin + 1, shape[0])
-    end_y   = min(max_y + margin + 1, shape[1])
-    end_x   = min(max_x + margin + 1, shape[2])
-
-    return [[start_z, start_y, start_x], [end_z, end_y, end_x]]
-
-def _crop_volumes(b_box: list, image: np.ndarray, segPred: np.ndarray,
-    labels: np.ndarray, label: np.int32):
-    """
-    Cropping the data
-
-    Parameters
-    ----------
-    b_box : list
-        Bounding box
-    image : np.ndarray
-        3D array with image data
-    segPred : np.ndarray
-        3D array with the predicted segmentation data
-    labels : np,ndarray
-        3D array with segmentation labels
-    label : np.int32
-        Singel label
-
-    Returns
-    -------
-    dict
-        Dictionary with the keys:
-        - image : np.ndarray
-        - segPred : np.ndarray
-        - labels : np.ndarray
-    """
-
-    # (06.03.2026)
-    (min_z, min_y, min_x), (max_z, max_y, max_x) = b_box
-
-    cropped_image   = image[  min_z:max_z, min_y:max_y, min_x:max_x]
-    cropped_segPred = segPred[min_z:max_z, min_y:max_y, min_x:max_x]
-    cropped_labels  = labels[ min_z:max_z, min_y:max_y, min_x:max_x]
-
-    # Keep only inside the box
-    masked_labels = np.where(cropped_labels == label, label, 0)
-
-    return {
-        "image": cropped_image,
-        "segPred": cropped_segPred,
-        "labels": masked_labels
-    }
-
-def _display_cropped(viewer: napari.viewer.Viewer, stem1: str, stem2: str,
+def display_cropped(viewer: napari.viewer.Viewer, stem1: str, stem2: str,
     segment_name: str, cropped: dict):
     """
     Plotting in Napari
@@ -195,7 +101,7 @@ def _display_cropped(viewer: napari.viewer.Viewer, stem1: str, stem2: str,
 
     return layer
 
-def _focus_viewer(viewer: napari.viewer.Viewer, labels: np.ndarray, label: int,
+def focus_viewer(viewer: napari.viewer.Viewer, labels: np.ndarray, label: int,
     layer: napari.layers.Layer):
     """
     Focus the camera
@@ -688,19 +594,19 @@ class ExampleQWidget(QWidget):
         mask  = self.labels == label    # Segment mask
 
         # 1st: Calculate bounding box
-        b_box = _compute_bbox(mask)
-        b_box = _expand_bbox(b_box, self.image.shape, margin_factor)
+        b_box = compute_bbox(mask)
+        b_box = expand_bbox(b_box, self.image.shape, margin_factor)
 
         # Save the coordinates of the cropped image
         segment.coords = b_box
 
-        cropped = _crop_volumes(b_box, self.image, self.segPred, self.labels,
+        cropped = crop_volumes(b_box, self.image, self.segPred, self.labels,
             label)
 
-        layer = _display_cropped(self.viewer, self.stem1, self.stem2,
+        layer = display_cropped(self.viewer, self.stem1, self.stem2,
             segment.name, cropped)
 
-        _focus_viewer(self.viewer, cropped["labels"], label, layer)
+        focus_viewer(self.viewer, cropped["labels"], label, layer)
 
     def done(self, segment: Segment):
         """
