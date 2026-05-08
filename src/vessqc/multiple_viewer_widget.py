@@ -18,12 +18,7 @@ import numpy as np
 from qtpy.QtCore import Qt
 from qtpy.QtWidgets import (
     QCheckBox,
-    QDoubleSpinBox,
-    QPushButton,
     QSplitter,
-    QTabWidget,
-    QVBoxLayout,
-    QWidget,
 )
 from superqt.utils import qthrottled
 

@@ -1,13 +1,17 @@
 name: vessqc
 display_name: VessQC
 visibility: public
-categories: ["Segmentation", "Image Processing"]
+
+categories: 
+    - Segmentation
+    - Annotation
+    - Image Processing
 
 contributions:
   commands:
-    - id: vessqc.make_qwidget
-      python_name: vessqc:ExampleQWidget
-      title: Make example QWidget
+    - id: vessqc.open_widget
+      python_name: vessqc:VessQCWidget
+      title: Open VessQC
   widgets:
-    - command: vessqc.make_qwidget
-      display_name: Vessel Quality Check
+    - command: vessqc.open_widget
+      display_name: VessQC

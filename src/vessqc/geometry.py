@@ -28,7 +28,10 @@ def compute_bbox(mask: np.ndarray):
     min_z, min_y, min_x = coords.min(axis=0)
     max_z, max_y, max_x = coords.max(axis=0)
 
-    return [[min_z, min_y, min_x], [max_z, max_y, max_x]]
+    return [
+        [int(min_z), int(min_y), int(min_x)],
+        [int(max_z), int(max_y), int(max_x)]
+    ]
 
 def expand_bbox(b_box: list, shape: tuple, margin_factor: float):
     """
