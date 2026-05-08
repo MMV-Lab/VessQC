@@ -37,7 +37,7 @@ from ..io_utils import (
     build_filename,
 )
 from ..multiple_viewer_widget import MultipleViewerWidget, CrossWidget
-from vessqc import ExampleQWidget
+from vessqc import VessQCWidget
 
 DATA = Path(__file__).parent / '_data'      # Constant with the _data path
 
@@ -51,10 +51,10 @@ DATA = Path(__file__).parent / '_data'      # Constant with the _data path
 # This is filtered in pytest.ini on purpose.
 @pytest.fixture
 def widget(make_napari_viewer, qtbot):
-    # Create an object of class ExampleQWidget
+    # Create an object of class VessQCWidget
     # (12.09.2024)
     napari_viewer = make_napari_viewer(strict_qt=True)
-    example_widget = ExampleQWidget(napari_viewer)
+    example_widget = VessQCWidget(napari_viewer)
     dock_widget = example_widget.dock_widget
     qtbot.addWidget(example_widget)         # Fixture from pytest-qt
 
@@ -129,9 +129,9 @@ def segments():
 @pytest.mark.init
 def test_init(widget):
     # (12.09.2024)
-    assert isinstance(widget, QWidget)              # Base class of ExampleQWidget
-    assert isinstance(widget, ExampleQWidget)       # Class of widget
-    assert issubclass(ExampleQWidget, QWidget)      # Is QWidget the base class?
+    assert isinstance(widget, QWidget)              # Base class of VessQCWidget
+    assert isinstance(widget, VessQCWidget)         # Class of widget
+    assert issubclass(VessQCWidget, QWidget)        # Is QWidget the base class?
     assert isinstance(widget.viewer, napari.Viewer)
     assert isinstance(widget.layout(), QVBoxLayout)
     assert isinstance(widget.segments, list)

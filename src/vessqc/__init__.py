@@ -1,9 +1,9 @@
-__version__ = "0.8.0"
+__version__ = "0.9.0"
 
-from ._widget import ExampleQWidget
+from ._widget import VessQCWidget
 from .models import Segment
 
 __all__ = (
-    "ExampleQWidget",
+    "VessQCWidget",
     "Segment",
 )

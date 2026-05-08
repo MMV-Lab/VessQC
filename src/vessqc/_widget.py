@@ -14,7 +14,7 @@ focus_viewer
 
 Classes
 -------
-ExampleQWidget
+VessQCWidget
     Class for displaying and correcting a 3D image of blood vessels.
 """
 
@@ -131,7 +131,7 @@ def focus_viewer(viewer: napari.viewer.Viewer, labels: np.ndarray, label: int,
     layer.selected_label = label
 
 
-class ExampleQWidget(QWidget):
+class VessQCWidget(QWidget):
     """
     Class for displaying and correcting a 3D image of blood vessels
 
@@ -714,7 +714,7 @@ class ExampleQWidget(QWidget):
             print('Close', name)
 
             # The following expression contains a generator:
-            segment = next((s for s in self.segments if s['name'] == name), None)
+            segment = next((s for s in self.segments if s.name == name), None)
             if segment is not None:
                 self.compare_and_transfer(segment)
                 segment.done = True
