@@ -12,6 +12,9 @@ current dims point (`viewer.dims.point`).
 .. tags:: gui
 """
 
+# Added defensive checks for layer existence during viewer teardown.
+# Required for stable operation with newer napari / Python versions.
+
 from copy import deepcopy
 
 import numpy as np
@@ -266,6 +269,12 @@ class MultipleViewerWidget(QSplitter):
             self.viewer_model2.layers.selection.active = None
             return
 
+        name = event.value.name                 # ChatGPT
+        if name not in self.viewer_model1.layers:
+            return
+        if name not in self.viewer_model2.layers:
+            return
+
         self.viewer_model1.layers.selection.active = self.viewer_model1.layers[
             event.value.name
         ]
@@ -284,6 +293,12 @@ class MultipleViewerWidget(QSplitter):
     def _order_update(self):
         order = list(self.viewer.dims.order)
         if len(order) <= 2:
+
+            if self.viewer_model1 is None:      # ChatGPT
+                return
+            if self.viewer_model2 is None:
+                return
+
             self.viewer_model1.dims.order = order
             self.viewer_model2.dims.order = order
             return
@@ -346,7 +361,13 @@ class MultipleViewerWidget(QSplitter):
         if self._block:
             return
         for model in [self.viewer, self.viewer_model1, self.viewer_model2]:
-            layer = model.layers[event.source.name]
+
+            # layer = model.layers[event.source.name]
+            name = event.source.name        # ChatGPT
+            if name not in model.layers:
+                continue
+            layer = model.layers[name]
+
             if layer is event.source:
                 continue
             try:
@@ -362,7 +383,13 @@ class MultipleViewerWidget(QSplitter):
         if self._block:
             return
         for model in [self.viewer, self.viewer_model1, self.viewer_model2]:
-            layer = model.layers[event.source.name]
+
+            # layer = model.layers[event.source.name]
+            name = event.source.name            # ChatGPT
+            if name not in model.layers:
+                continue
+            layer = model.layers[name]
+
             if layer is event.source:
                 continue
             try:
@@ -373,6 +400,12 @@ class MultipleViewerWidget(QSplitter):
 
     def _layer_removed(self, event):
         """remove layer in all viewers"""
+
+        if event.index >= len(self.viewer_model1.layers):       # ChatGPT
+            return
+        if event.index >= len(self.viewer_model2.layers):
+            return
+
         self.viewer_model1.layers.pop(event.index)
         self.viewer_model2.layers.pop(event.index)
 
@@ -392,6 +425,13 @@ class MultipleViewerWidget(QSplitter):
             return
         try:
             self._block = True
+
+            name2 = event.source.name        # ChatGPT
+            if name2 not in self.viewer_model1.layers:
+                return
+            if name2 not in self.viewer_model2.layers:
+                return
+
             setattr(
                 self.viewer_model1.layers[event.source.name],
                 name,
