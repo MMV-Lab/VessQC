@@ -173,7 +173,7 @@ Save final result
 The corrected segmentation is written to disk as:
 
 ```text
-*_segPredNew.tif
+*_segPred_New.tif
 ```
 
 Optionally the corrected uncertainty map can also be saved.

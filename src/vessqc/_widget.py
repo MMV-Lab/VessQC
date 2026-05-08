@@ -21,7 +21,6 @@ ExampleQWidget
 # Copyright © Peter Lampen, ISAS Dortmund, 2024
 # (03.05.2024)
 
-import copy
 import numpy as np
 import napari
 from pathlib import Path
