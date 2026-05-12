@@ -39,15 +39,15 @@ jobs:
           python -m pip install setuptools tox tox-gh-actions
 
       # this runs the platform-specific tests declared in tox.ini
-      - name: Test with tox
-        run: |
-          if [ "$RUNNER_OS" = "Linux" ]; then
-            xvfb-run -a python -m tox
-          else
-            python -m tox
-          fi
+      - name: Test with tox (Linux Xvfb)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a python -m tox
         env:
           QT_QPA_PLATFORM: offscreen
+
+      - name: Test with tox (Windows/macOS)
+        if: runner.os != 'Linux'
+        run: python -m tox
 
       - name: Upload coverage to Coverage
         uses: codecov/codecov-action@v5

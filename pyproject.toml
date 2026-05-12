@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vessqc"
-version = "0.9.8"
+version = "0.9.9"
 description = "Napari plugin for uncertainty-based quality control of 3D vessel segmentations"
 authors = [
     {name = "Peter Lampen", email = "lampen@isas.de"}
@@ -72,7 +72,7 @@ vessqc = ["napari.yaml"]
 vessqc = "vessqc:napari.yaml"
 
 [tool.bumpversion]
-current_version = "0.9.8"
+current_version = "0.9.9"
 parse = "(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)"
 serialize = ["{major}.{minor}.{patch}"]
 search = "{current_version}"
