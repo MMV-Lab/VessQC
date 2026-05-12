@@ -24,6 +24,7 @@ from qtpy.QtWidgets import (
     QSplitter,
 )
 from superqt.utils import qthrottled
+from typing import Optional         # ChatGPT
 
 import napari
 from napari.components.viewer_model import ViewerModel
@@ -122,8 +123,8 @@ class QtViewerWrap(QtViewer):
         self,
         filenames: list,
         stack: bool,
-        plugin: str | None = None,
-        layer_type: str | None = None,
+        plugin: Optional[str] = None,       # ChatGPT
+        layer_type: Optional[str] = None,
         **kwargs,
     ):
         """for drag and drop open files"""

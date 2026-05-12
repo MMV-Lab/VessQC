@@ -22,6 +22,7 @@ import json
 import numpy as np
 from pathlib import Path
 import tempfile
+from typing import List
 
 from .models import Segment
 
@@ -63,7 +64,7 @@ def load_npy(filename: Path):
     with filename.open("rb") as f:
         return np.load(f)
 
-def save_segments(segments: list[Segment], filename: Path):
+def save_segments(segments: List[Segment], filename: Path):
     """
     Save Segment objects as a JSON file.
 
@@ -83,7 +84,7 @@ def save_segments(segments: list[Segment], filename: Path):
         data = [asdict(seg) for seg in segments]
         json.dump(data, f, indent=2)
 
-def load_segments(filename: Path) -> list[Segment]:
+def load_segments(filename: Path) -> List[Segment]:
     """
     Load Segment object from a JSON file.
 

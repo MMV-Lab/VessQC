@@ -31,7 +31,7 @@ class Segment:
         Uncertainty assigned to the segment.
     count : int
         Number of voxels in the segment.
-    coords : list | None
+    coords : Optional[list] = None
         Bounding box coordinates of the cropped region.
     done : bool
         True if the segment has already been processed.
