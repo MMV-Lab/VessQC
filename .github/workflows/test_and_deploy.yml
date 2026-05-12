@@ -40,7 +40,12 @@ jobs:
 
       # this runs the platform-specific tests declared in tox.ini
       - name: Test with tox
-        run: python -m tox
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run -a python -m tox
+          else
+            python -m tox
+          fi
         env:
           QT_QPA_PLATFORM: offscreen
 
