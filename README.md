@@ -34,7 +34,7 @@ The plugin is particularly useful for workflows in which:
 
 ## Screenshot
 
-![VessQC user interface](docs/images/vessqc_screenshot.png)
+![VessQC user interface](https://raw.githubusercontent.com/MMV-Lab/VessQC/main/docs/images/vessqc_screenshot.png)
 
 ---
 
