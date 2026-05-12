@@ -1,4 +1,4 @@
-__version__ = "0.9.4"
+__version__ = "0.9.5"
 
 from ._widget import VessQCWidget
 from .models import Segment
