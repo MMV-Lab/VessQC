@@ -14,4 +14,4 @@ contributions:
       title: Open VessQC
   widgets:
     - command: vessqc.open_widget
-      display_name: VessQC
+      display_name: Vessel Quality Check
