@@ -320,6 +320,54 @@ def test_dataset_metrics_with_uncertainty_1_0(data_manager, temp_data_dir):
 
 
 @pytest.mark.data_manager
+def test_compute_mean_uncertainty():
+    """Mean uses all labeled voxels with equal weight; background is ignored."""
+    uncertainty = np.array([[[0.2, 0.8], [0.0, 0.2]]], dtype=np.float32)
+    labels = np.array([[[1, 1], [0, 1]]], dtype=np.int32)
+    mean_val = DataManager._compute_mean_uncertainty(uncertainty, labels)
+    assert abs(mean_val - 0.4) < 1e-6
+
+
+@pytest.mark.data_manager
+def test_dataset_sorting_by_mean_uncertainty(data_manager, temp_data_dir):
+    """Datasets sort by mean uncertainty (desc), then name."""
+    from vessqc._constants import DATASET_SORT_MEAN
+
+    data_manager.set_data_directory(temp_data_dir)
+    data_manager.dataset_sort_mode = DATASET_SORT_MEAN
+    seg_dir = data_manager.segmentation_dir
+
+    specs = [
+        ('test_low', 0.2),
+        ('test_high', 0.8),
+    ]
+    for dataset_name, fill_value in specs:
+        img = np.random.rand(10, 10, 10).astype(np.uint8)
+        segpred = np.ones((10, 10, 10), dtype=np.uint8)
+        uncertainty = np.full((10, 10, 10), fill_value, dtype=np.float32)
+        labels = np.ones((10, 10, 10), dtype=np.int32)
+
+        imwrite(temp_data_dir / f'{dataset_name}_IM.tif', img)
+        imwrite(temp_data_dir / f'{dataset_name}_segPred.tif', segpred)
+        imwrite(temp_data_dir / f'{dataset_name}_uncertainty.tif', uncertainty)
+        imwrite(seg_dir / f'{dataset_name}_labels.tif', labels)
+        segments = [
+            {'label': 1, 'uncertainty': fill_value, 'counts': 1000, 'coords': None, 'done': False},
+            {'label': 99, 'uncertainty': 0.9999, 'counts': 10, 'coords': None, 'done': False},
+        ]
+        with (seg_dir / f'{dataset_name}_segments.json').open('w') as f:
+            json.dump(segments, f)
+
+    data_manager.detect_datasets()
+    data_manager.calculate_priorities(threaded=False)
+
+    assert data_manager.datasets[0].base_name == 'test_high'
+    assert abs(data_manager.datasets[0].mean_uncertainty - 0.8) < 1e-5
+    assert data_manager.datasets[1].base_name == 'test_low'
+    assert abs(data_manager.datasets[1].mean_uncertainty - 0.2) < 1e-5
+
+
+@pytest.mark.data_manager
 def test_dataset_sorting_by_metrics(data_manager, temp_data_dir):
     """Test that datasets are sorted by uncertainty then size"""
     data_manager.set_data_directory(temp_data_dir)

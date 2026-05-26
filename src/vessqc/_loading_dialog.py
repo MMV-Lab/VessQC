@@ -17,6 +17,7 @@ LoadingDialog
 
 from pathlib import Path
 from qtpy.QtCore import Qt, Signal
+from qtpy.QtGui import QResizeEvent, QShowEvent
 from qtpy.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -29,10 +30,56 @@ from qtpy.QtWidgets import (
     QMessageBox,
     QProgressBar,
 )
+try:
+    from superqt import QToggleSwitch
+except ImportError as exc:
+    raise ImportError(
+        'VessQC requires superqt>=0.7.3 (QToggleSwitch). '
+        'Upgrade with: pip install "superqt>=0.7.3"'
+    ) from exc
+from vessqc._constants import DATASET_SORT_MAX, DATASET_SORT_MEAN
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ._data_manager import DataManager, DatasetTriplet
+
+_SORT_LABEL_ACTIVE_STYLE = ''
+_SORT_LABEL_INACTIVE_STYLE = 'color: #888888;'
+
+
+class SortModeToggleSwitch(QToggleSwitch):
+    """QToggleSwitch with handle offset forced to match checked state.
+
+    superqt's QToggleSwitch can paint the groove as "on" while the handle
+    stays at the "off" offset when setChecked() does not change state and
+    layout was not final yet. Animation is disabled; handle is realigned on
+    show, resize, and whenever sort mode is applied programmatically.
+    """
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setAnimationDuration(0)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._align_handle()
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        self._align_handle()
+
+    def apply_sort_mode(self, use_mean: bool) -> None:
+        """Set checked state and handle position without emitting signals."""
+        self.blockSignals(True)
+        self._anim.stop()
+        self.setChecked(use_mean)
+        self._align_handle()
+        self.blockSignals(False)
+        self.update()
+
+    def _align_handle(self) -> None:
+        self._anim.stop()
+        self._set_offset(self._offset_for_checkstate(self.isChecked()))
 
 
 class LoadingDialog(QDialog):
@@ -96,10 +143,29 @@ class LoadingDialog(QDialog):
         dir_layout.addWidget(btn_refresh)
         
         layout.addLayout(dir_layout)
+
+        sort_layout = QHBoxLayout()
+        sort_layout.addWidget(QLabel('Sort by:'))
+        self.sort_max_label = QLabel('Max')
+        sort_layout.addWidget(self.sort_max_label)
+        self.mean_sort_switch = SortModeToggleSwitch()
+        self.mean_sort_switch.setToolTip(
+            'Max: highest uncertainty (excluding Noise), then size. '
+            'Mean: mean uncertainty over segment voxels.'
+        )
+        self.mean_sort_switch.toggled.connect(self._on_sort_mode_toggled)
+        sort_layout.addWidget(self.mean_sort_switch)
+        self.sort_mean_label = QLabel('Mean')
+        sort_layout.addWidget(self.sort_mean_label)
+        sort_layout.addWidget(QLabel('Uncertainty'))
+        sort_layout.addStretch()
+        layout.addLayout(sort_layout)
+        self._update_sort_option_labels()
         
         # Info label
-        self.info_label = QLabel('Datasets ordered by highest uncertainty (excluding Noise), then size')
+        self.info_label = QLabel()
         self.info_label.setStyleSheet('color: gray; font-style: italic;')
+        self._update_info_label()
         layout.addWidget(self.info_label)
         
         # Queue status label
@@ -141,7 +207,29 @@ class LoadingDialog(QDialog):
         # Update directory label if directory is set
         if self.data_manager.data_directory:
             self.dir_label.setText(f'Data Directory: {self.data_manager.data_directory}')
-    
+
+    def showEvent(self, event: QShowEvent) -> None:
+        """Apply sort mode after the dialog (and switch) have been laid out."""
+        super().showEvent(event)
+        self._sync_mean_sort_switch()
+
+    def _sync_mean_sort_switch(self) -> None:
+        """Apply dataset sort mode to the toggle switch visuals."""
+        use_mean = self.data_manager.dataset_sort_mode == DATASET_SORT_MEAN
+        self.mean_sort_switch.apply_sort_mode(use_mean)
+        self._update_sort_option_labels()
+
+    def _update_sort_option_labels(self, *, use_mean: Optional[bool] = None) -> None:
+        """Emphasize Max or Mean; grey out the other (Uncertainty label stays normal)."""
+        if use_mean is None:
+            use_mean = self.data_manager.dataset_sort_mode == DATASET_SORT_MEAN
+        self.sort_max_label.setStyleSheet(
+            _SORT_LABEL_INACTIVE_STYLE if use_mean else _SORT_LABEL_ACTIVE_STYLE
+        )
+        self.sort_mean_label.setStyleSheet(
+            _SORT_LABEL_ACTIVE_STYLE if use_mean else _SORT_LABEL_INACTIVE_STYLE
+        )
+
     def _select_directory(self):
         """Open dialog to select data directory"""
         directory = QFileDialog.getExistingDirectory(
@@ -172,6 +260,28 @@ class LoadingDialog(QDialog):
             else:
                 QMessageBox.warning(self, 'Error', 'Could not set data directory')
     
+    def _update_info_label(self):
+        """Update helper text for the active dataset sort mode."""
+        if self.data_manager.dataset_sort_mode == DATASET_SORT_MEAN:
+            self.info_label.setText(
+                'Datasets ordered by mean uncertainty (segment voxels), then name'
+            )
+        else:
+            self.info_label.setText(
+                'Datasets ordered by highest uncertainty (excluding Noise), then size, then name'
+            )
+
+    def _on_sort_mode_toggled(self, use_mean: bool):
+        """Switch between max- and mean-uncertainty dataset ordering."""
+        self._update_sort_option_labels(use_mean=use_mean)
+        mode = DATASET_SORT_MEAN if use_mean else DATASET_SORT_MAX
+        if mode == self.data_manager.dataset_sort_mode:
+            return
+        self.data_manager.dataset_sort_mode = mode
+        self._update_info_label()
+        self.data_manager.sort_datasets()
+        self._update_dataset_list()
+
     def _refresh_datasets(self):
         """Refresh the dataset list"""
         print(f"\nDEBUG: LoadingDialog._refresh_datasets() called")
@@ -283,8 +393,8 @@ class LoadingDialog(QDialog):
             self.dataset_list.addItem(item)
             return
         
-        # Display ALL datasets (already sorted by uncertainty desc, then size desc)
-        print(f"DEBUG:   Displaying all {len(self.data_manager.datasets)} datasets:")
+        sort_mode = self.data_manager.dataset_sort_mode
+        print(f"DEBUG:   Displaying all {len(self.data_manager.datasets)} datasets (sort={sort_mode}):")
         
         for i, triplet in enumerate(self.data_manager.datasets):
             # Skip datasets without segmentation (they're being calculated)
@@ -292,22 +402,41 @@ class LoadingDialog(QDialog):
                 print(f"DEBUG:     {i+1}. {triplet.base_name}: calculating...")
                 continue
             
-            uncertainty = triplet.max_uncertainty_excluding_noise if triplet.max_uncertainty_excluding_noise is not None else 0.0
-            voxel_count = triplet.voxel_count_at_max_uncertainty if triplet.voxel_count_at_max_uncertainty is not None else 0
-            
             temp_indicator = " [TEMP]" if triplet.has_temp else ""
-            print(f"DEBUG:     {i+1}. {triplet.base_name}: uncertainty={uncertainty:.3f}, size={voxel_count}{temp_indicator}")
-            
-            # Create display text: "dataset_name (uncertainty: X.XXX, size: YYYY) [TEMP]"
-            display_text = f"{triplet.base_name} (uncertainty: {uncertainty:.3f}, size: {voxel_count}){temp_indicator}"
+
+            if sort_mode == DATASET_SORT_MEAN:
+                mean_u = triplet.mean_uncertainty if triplet.mean_uncertainty is not None else 0.0
+                print(f"DEBUG:     {i+1}. {triplet.base_name}: mean uncertainty={mean_u:.3f}{temp_indicator}")
+                display_text = (
+                    f"{triplet.base_name} (mean uncertainty: {mean_u:.3f}){temp_indicator}"
+                )
+                color_value = mean_u
+            else:
+                uncertainty = (
+                    triplet.max_uncertainty_excluding_noise
+                    if triplet.max_uncertainty_excluding_noise is not None else 0.0
+                )
+                voxel_count = (
+                    triplet.voxel_count_at_max_uncertainty
+                    if triplet.voxel_count_at_max_uncertainty is not None else 0
+                )
+                print(
+                    f"DEBUG:     {i+1}. {triplet.base_name}: "
+                    f"uncertainty={uncertainty:.3f}, size={voxel_count}{temp_indicator}"
+                )
+                display_text = (
+                    f"{triplet.base_name} (uncertainty: {uncertainty:.3f}, "
+                    f"size: {voxel_count}){temp_indicator}"
+                )
+                color_value = uncertainty
             
             item = QListWidgetItem(display_text)
             item.setData(Qt.UserRole, triplet)  # Store triplet in item
             
             # Color code based on uncertainty (higher = higher priority)
-            if uncertainty > 0.7:
+            if color_value > 0.7:
                 item.setForeground(Qt.red)  # High priority (high uncertainty)
-            elif uncertainty > 0.4:
+            elif color_value > 0.4:
                 item.setForeground(Qt.darkYellow)  # Medium priority
             # else: default color (low priority)
             

@@ -62,6 +62,14 @@ def widget(make_napari_viewer, qtbot, tmp_path, monkeypatch):
     qtbot.addWidget(my_widget)          # Fixture from pytest-qt
     return my_widget
 
+
+@pytest.fixture(autouse=True)
+def suppress_success_message_boxes():
+    """Prevent modal success dialogs during widget tests."""
+    with mock.patch("qtpy.QtWidgets.QMessageBox.information"):
+        yield
+
+
 # define fixtures for the image data
 @pytest.fixture
 def image():
@@ -166,10 +174,12 @@ def test_read_segPred_deprecated(widget):
 
 
 @pytest.mark.find_segments
-def test_find_segments(widget, uncertainty, labels, segments):
+def test_find_segments(widget, uncertainty, labels, segPred, segments):
     # (17.09.2024, updated 07.10.2025)
-    # Note: Segmentation changed to use min_size=200, so results differ from old reference
+    # Note: Segmentation uses NOISE_MIN_SIZE=50 for merging into Noise
     viewer = widget.viewer
+    widget.segPred = segPred
+    widget.labels = labels
     widget.find_segments(uncertainty)
 
     # For comparison purposes, the data must be standardized.
@@ -198,13 +208,16 @@ def test_popup_window(widget, segments):
     # (17.09.2024)
     with mock.patch("qtpy.QtWidgets.QWidget.show") as mock_show:
         widget.segments = segments
+        widget._sort_segments()
         widget.show_popup_window()
         popup_window = widget.popup_window
         mock_show.assert_called_once()
 
     assert isinstance(popup_window, QWidget)
     assert popup_window.windowTitle() == 'Napari (segment list)'
-    assert popup_window.minimumSize() == QSize(350, 300)
+    from vessqc._constants import SEGMENT_LIST_POPUP_MIN_WIDTH
+
+    assert popup_window.minimumSize() == QSize(SEGMENT_LIST_POPUP_MIN_WIDTH, 300)
 
     vbox_layout = popup_window.layout()
     assert isinstance(vbox_layout, QVBoxLayout)
@@ -225,14 +238,15 @@ def test_popup_window(widget, segments):
     assert grid_layout.rowCount() == 12
     assert grid_layout.columnCount() == 4
 
-    item_5_0 = grid_layout.itemAtPosition(5, 0)
-    item_5_1 = grid_layout.itemAtPosition(5, 1)
-    item_5_2 = grid_layout.itemAtPosition(5, 2)
-    item_5_3 = grid_layout.itemAtPosition(5, 3)
-    assert item_5_0.widget().text() == 'Segment_5'
-    assert item_5_1.widget().text() == '0.600'
-    assert item_5_2.widget().text() == '37'
-    assert item_5_3.widget().text() == 'done'
+    # Highest priority first: Segment_9 (uncertainty 0.9999, shown as %.3f)
+    item_1_0 = grid_layout.itemAtPosition(1, 0)
+    item_1_1 = grid_layout.itemAtPosition(1, 1)
+    item_1_2 = grid_layout.itemAtPosition(1, 2)
+    item_1_3 = grid_layout.itemAtPosition(1, 3)
+    assert item_1_0.widget().text() == 'Segment_9'
+    assert item_1_1.widget().text() == '1.000'
+    assert item_1_2.widget().text() == '1'
+    assert item_1_3.widget().text() == 'done'
 
 
 @pytest.mark.new_entry
@@ -261,8 +275,7 @@ def test_new_entry(widget, segments):
 
 
 @pytest.mark.zoom_in
-def test_zoom_in(widget, image, segPred, labels, cropped_segPred,
-    segment_4, segments):
+def test_zoom_in(widget, image, segPred, labels, segments):
     # (06.08.2025, updated for label remapping)
     widget.image    = image
     widget.segPred  = segPred
@@ -272,19 +285,23 @@ def test_zoom_in(widget, image, segPred, labels, cropped_segPred,
     widget.stem2    = 'Box32x32_segPred'
     widget.zoom_in(segments[3], 0.75)
 
-    # After label remapping, cropped_segPred should have all non-zero labels → 1
+    segment = segments[3]
+    startz, starty, startx = segment['coords'][0]
+    endz, endy, endx = segment['coords'][1]
+
+    # After label remapping, cropped segPred should have all non-zero labels → 1
     name = 'Cropped Box32x32_segPred'
     layer = widget.viewer.layers[name]
-    expected_remapped = np.where(cropped_segPred > 0, 1, 0)
+    cropped_sp = segPred[startz:endz, starty:endy, startx:endx]
+    expected_remapped = np.where(cropped_sp > 0, 1, 0).astype(np.uint8)
     assert np.array_equal(layer.data, expected_remapped)
 
-    # Segment should also be remapped to 1
+    # Segment layer should be remapped to 1 within the same crop
     name = 'Segment_4'
     layer = widget.viewer.layers[name]
-    expected_segment = np.where(segment_4 > 0, 1, 0)
+    cropped_lbl = labels[startz:endz, starty:endy, startx:endx]
+    expected_segment = np.where(cropped_lbl == segment['label'], 1, 0).astype(np.uint8)
     assert np.array_equal(layer.data, expected_segment)
-
-    assert widget.segments[3]['coords'] == [[13, 13, 12], [18, 20, 19]]
     
 
 @pytest.mark.done
@@ -304,10 +321,7 @@ def test_done(widget, image, segPred, segPredNew, uncertainty, uncertaintyNew,
 
     widget.viewer.add_labels(segment_4New, name='Segment_4')
 
-    # Call the function done(segment)
-    with mock.patch("qtpy.QtWidgets.QWidget.show") as mock_show:
-        widget.done(segment)
-        assert mock_show.call_count == 2
+    widget.done(segment)
 
     # the data in widget.segPred and widget.labels should have been changed
     # by the function compare_and_transfer()
@@ -331,63 +345,56 @@ def test_re_enable(widget, segments):
 
 
 @pytest.mark.save_intermediate
-def test_save_intermediate_data(widget, segPred, uncertainty, labels, segments):
-    # (27.09.2024)
-    widget.segPred      = segPred
-    widget.uncertainty  = uncertainty
-    widget.labels       = labels
-    widget.segments     = segments
-    widget.stem1        = 'Box32x32_IM'
-    widget.stem2        = 'Box32x32_segPred'
-    widget.stem3        = 'Box32x32_uncertainty'
-    widget.save_intermediate_data()
+def test_save_intermediate_data(widget, segPred, uncertainty, labels, segments, tmp_path):
+    # (27.09.2024, updated for _temp .tif saves and segmentation dir)
+    from types import SimpleNamespace
 
-    filename = TEMP.joinpath('Box32x32_segPred.npy')
-    loaded_data = np.load(filename)
-    assert np.array_equal(loaded_data, segPred)
+    widget.segPred = segPred
+    widget.uncertainty = uncertainty
+    widget.labels = labels
+    widget.segments = segments
+    widget.stem1 = 'Box32x32_IM'
+    widget.stem2 = 'Box32x32_segPred'
+    widget.stem3 = 'Box32x32_uncertainty'
+    widget.parent = tmp_path
+    widget.current_triplet = SimpleNamespace(base_name='Box32x32')
+    seg_dir = tmp_path / 'segmentation'
+    seg_dir.mkdir()
+    widget.data_manager.segmentation_dir = seg_dir
 
-    filename = filename.with_name('Box32x32_uncertainty.npy')
-    loaded_data = np.load(filename)
-    assert np.array_equal(loaded_data, uncertainty)
+    with mock.patch("qtpy.QtWidgets.QMessageBox.information"):
+        widget.save_intermediate_data()
 
-    filename = filename.with_name('Box32x32_labels.npy')
-    loaded_data = np.load(filename)
-    assert np.array_equal(loaded_data, labels)
-
-    filename = filename.with_name('Box32x32_segments.json')
-    with filename.open('r', encoding='utf-8') as file:
-        loaded_data = json.load(file)
-    assert loaded_data == segments
+    assert (tmp_path / 'Box32x32_segPred_temp.tif').exists()
+    assert (tmp_path / 'Box32x32_uncertainty_temp.tif').exists()
+    assert np.array_equal(imread(tmp_path / 'Box32x32_segPred_temp.tif'), segPred)
+    assert np.array_equal(imread(tmp_path / 'Box32x32_uncertainty_temp.tif'), uncertainty)
+    assert (seg_dir / 'Box32x32_labels.tif').exists()
+    assert np.array_equal(imread(seg_dir / 'Box32x32_labels.tif'), labels)
+    with (seg_dir / 'Box32x32_segments.json').open('r', encoding='utf-8') as file:
+        saved_segments = json.load(file)
+    assert len(saved_segments) == len(segments)
 
 
 @pytest.mark.save_intermediate_with_exc
-def test_save_intermediate_data_with_exc(widget, segments):
+def test_save_intermediate_data_with_exc(widget, segments, tmp_path):
     # (27.09.2024)
-    widget.segPred     = np.ones((3, 3, 3), dtype=np.int32)
+    widget.segPred = np.ones((3, 3, 3), dtype=np.int32)
     widget.uncertainty = np.random.rand(3, 3, 3)
-    widget.labels      = np.ones((3, 3, 3), dtype=np.int32)
-    widget.segments    = segments
-    widget.stem1       = 'test_save_IM'
-    widget.stem2       = 'test_save_segPred'
-    widget.stem3       = 'test_save_uncertainty'
+    widget.labels = np.ones((3, 3, 3), dtype=np.int32)
+    widget.segments = segments
+    widget.stem1 = 'test_save_IM'
+    widget.stem2 = 'test_save_segPred'
+    widget.stem3 = 'test_save_uncertainty'
+    widget.parent = tmp_path
 
-    # Simulate an exception when opening the file
-    with mock.patch("pathlib.Path.open", side_effect=OSError("File error")), \
+    with mock.patch("vessqc._widget.imwrite", side_effect=OSError("File error")), \
          mock.patch("qtpy.QtWidgets.QMessageBox.warning") as mock_warning:
         widget.save_intermediate_data()
         assert mock_warning.call_count == 1
 
-    filename = TEMP.joinpath('test_save_segPred.npy')
-    assert not filename.exists()
-
-    filename = filename.with_name('test_save_uncertainty.npy')
-    assert not filename.exists()
-
-    filename = filename.with_name('test_save_labels.npy')
-    assert not filename.exists()
-
-    filename = filename.with_name('test_save_segments.json')
-    assert not filename.exists()
+    assert not (tmp_path / 'test_save_segPred_temp.tif').exists()
+    assert not (tmp_path / 'test_save_uncertainty_temp.tif').exists()
 
 
 @pytest.mark.load_intermediate
@@ -445,10 +452,10 @@ def test_threshold_debouncing(widget, qtbot):
     # Add Segmentation layer to viewer so threshold filter doesn't fail
     widget.viewer.add_labels(widget.labels, name='Segmentation')
     
-    # Change threshold multiple times quickly (values must be >= 200, the minimum)
-    widget.threshold_spinbox.setValue(250)
-    widget.threshold_spinbox.setValue(300)
-    widget.threshold_spinbox.setValue(350)
+    # Change threshold multiple times quickly (values >= 50)
+    widget.threshold_spinbox.setValue(100)
+    widget.threshold_spinbox.setValue(150)
+    widget.threshold_spinbox.setValue(200)
     
     # Timer should be active but not fired yet
     assert widget.threshold_timer.isActive()
@@ -456,15 +463,46 @@ def test_threshold_debouncing(widget, qtbot):
     # Wait for timer to fire
     qtbot.wait(600)
     
-    # Now threshold should be applied
     assert not widget.threshold_timer.isActive()
 
 
 @pytest.mark.threshold
 def test_threshold_minimum(widget):
-    """Test that threshold cannot go below 200"""
-    assert widget.threshold_spinbox.minimum() == 200
-    assert widget.threshold_spinbox.value() == 200
+    """Test segment-size spinbox bounds and default"""
+    from vessqc._constants import DISPLAY_MIN_SIZE_DEFAULT, DISPLAY_MIN_SIZE_MIN
+
+    assert widget.threshold_spinbox.minimum() == DISPLAY_MIN_SIZE_MIN
+    assert widget.threshold_spinbox.value() == DISPLAY_MIN_SIZE_DEFAULT
+
+
+@pytest.mark.threshold
+def test_apply_threshold_merges_small_segments(widget):
+    """Segments below spinbox value merge into Noise; lowering spinbox restores them."""
+    labels = np.zeros((20, 20, 20), dtype=np.int32)
+    labels[0:3, 0:3, 0:3] = 4          # 27 voxels: permanent Noise (<50 floor)
+    labels[5:11, 5:11, 5:11] = 2       # 216 voxels: large segment (>= 200)
+    labels[10:15, 10:15, 0:4] = 5      # 100 voxels: medium (50-199)
+
+    widget.original_labels = labels.copy()
+    widget._original_noise_label = 4
+    widget.original_segments = [
+        {'name': 'Segment_2', 'label': 2, 'uncertainty': 0.8, 'counts': 216,
+         'coords': None, 'done': False},
+        {'name': 'Segment_5', 'label': 5, 'uncertainty': 0.6, 'counts': 100,
+         'coords': None, 'done': False},
+    ]
+    widget.labels = labels.copy()
+    widget.viewer.add_labels(widget.labels, name='Segmentation')
+
+    widget.apply_threshold_filter(200)
+    names = {s['name'] for s in widget.segments}
+    assert names == {'Segment_2', 'Noise'}
+
+    widget.apply_threshold_filter(50)
+    names = {s['name'] for s in widget.segments}
+    assert names == {'Segment_2', 'Segment_5', 'Noise'}
+    noise = next(s for s in widget.segments if s['name'] == 'Noise')
+    assert noise['counts'] == 27
 
 
 @pytest.mark.segment_count

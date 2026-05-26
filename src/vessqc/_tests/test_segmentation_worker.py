@@ -233,10 +233,10 @@ def test_calculate_segmentation_filters_small(sample_uncertainty, sample_segpred
     
     labels, segments = worker._calculate_segmentation(small_uncertainty, small_segpred)
     
-    # Should have Small_Segments collection
-    small_seg = [s for s in segments if s['name'] == 'Small_Segments']
-    assert len(small_seg) == 1
-    assert small_seg[0]['uncertainty'] == 0.9999
+    # Small region (8 voxels) should be merged into Noise
+    noise_seg = [s for s in segments if s['name'] == 'Noise']
+    assert len(noise_seg) == 1
+    assert noise_seg[0]['uncertainty'] == 0.9999
 
 
 @pytest.mark.worker

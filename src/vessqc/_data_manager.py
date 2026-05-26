@@ -25,6 +25,12 @@ from tifffile import imread
 import SimpleITK as sitk
 import time
 
+from ._constants import (
+    DATASET_SORT_MAX,
+    DATASET_SORT_MEAN,
+    DISPLAY_MIN_SIZE_DEFAULT,
+)
+
 # Setup logging
 log_file = Path.home() / '.vessqc_debug.log'
 logging.basicConfig(
@@ -110,6 +116,7 @@ class DatasetTriplet:
         self.segmentation_dir: Optional[Path] = None  # Where segmentation is stored
         self.max_uncertainty_excluding_noise: Optional[float] = None  # Highest uncertainty excluding Noise
         self.voxel_count_at_max_uncertainty: Optional[int] = None  # Count of voxels at that uncertainty
+        self.mean_uncertainty: Optional[float] = None  # Mean uncertainty over labeled segment voxels
         
     def __repr__(self):
         return f"DatasetTriplet('{self.base_name}', priority={self.priority})"
@@ -171,6 +178,7 @@ class DataManager:
         self.segmentation_dir: Optional[Path] = None
         self.datasets: List[DatasetTriplet] = []
         self.all_segment_priorities: List[SegmentPriority] = []
+        self.dataset_sort_mode: str = DATASET_SORT_MAX
         self._priority_thread: Optional[threading.Thread] = None
         self._priority_callback: Optional[Callable] = None
         self._load_config()
@@ -435,7 +443,59 @@ class DataManager:
         print(f"\nTotal datasets detected: {len(datasets)}")
         self.datasets = datasets
         return datasets
-    
+
+    @staticmethod
+    def _load_array(file_path: Path) -> Optional[np.ndarray]:
+        """Load a 3D array from TIFF or NIfTI."""
+        suffix = file_path.suffix.lower()
+        try:
+            if suffix in ['.tif', '.tiff'] or suffix.endswith('.ome.tif') or suffix.endswith('.ome.tiff'):
+                return imread(file_path)
+            if suffix in ['.nii', '.gz']:
+                sitk_image = sitk.ReadImage(str(file_path))
+                return sitk.GetArrayFromImage(sitk_image)
+        except Exception as e:
+            print(f"Warning: Could not load {file_path.name}: {e}")
+        return None
+
+    @staticmethod
+    def _compute_mean_uncertainty(uncertainty: np.ndarray, labels: np.ndarray) -> float:
+        """
+        Mean uncertainty over voxels belonging to a segment (labels > 0).
+        Background voxels are ignored; each voxel has equal weight.
+        """
+        if uncertainty.shape != labels.shape:
+            print(
+                f"Warning: uncertainty shape {uncertainty.shape} != labels shape {labels.shape}"
+            )
+            return 0.0
+        mask = labels > 0
+        values = uncertainty[mask]
+        if values.size == 0:
+            return 0.0
+        return float(np.mean(values))
+
+    def sort_datasets(self):
+        """Sort self.datasets using the active dataset_sort_mode."""
+        if not self.datasets:
+            return
+        self.datasets.sort(key=lambda x: x.base_name)
+        if self.dataset_sort_mode == DATASET_SORT_MEAN:
+            self.datasets.sort(
+                key=lambda x: x.mean_uncertainty if x.mean_uncertainty is not None else -1,
+                reverse=True,
+            )
+        else:
+            self.datasets.sort(
+                key=lambda x: (
+                    x.max_uncertainty_excluding_noise
+                    if x.max_uncertainty_excluding_noise is not None else -1,
+                    x.voxel_count_at_max_uncertainty
+                    if x.voxel_count_at_max_uncertainty is not None else 0,
+                ),
+                reverse=True,
+            )
+
     def _calculate_priority_for_dataset(self, triplet: DatasetTriplet) -> float:
         """
         Calculate priority for a single dataset based on uncertainty values
@@ -494,8 +554,8 @@ class DataManager:
             unique_labels = unique_labels[unique_labels > 0]  # Exclude background
             print(f"  Found {len(unique_labels)} unique labels in segPred")
             
-            # Calculate size threshold (200 pixels) to identify small segments
-            min_size = 200
+            # Skip segments below default display size for dataset ordering
+            min_size = DISPLAY_MIN_SIZE_DEFAULT
             counts = np.bincount(segpred.ravel())
             
             max_uncertainty = 0.0
@@ -549,12 +609,51 @@ class DataManager:
             triplet.segment_priorities.sort(key=lambda x: x.uncertainty, reverse=True)
             if len(triplet.segment_priorities) > 0:
                 print(f"  Top segment: {triplet.segment_priorities[0].segment_name} ({triplet.segment_priorities[0].uncertainty:.4f})")
-            
+
+            triplet.mean_uncertainty = self._compute_mean_uncertainty_for_triplet(
+                triplet, segpred=segpred, uncertainty=uncertainty
+            )
             return max_uncertainty if max_uncertainty > 0 else 0.0
             
         except Exception as e:
             print(f"Warning: Could not calculate priority for {triplet.base_name}: {e}")
             return float('inf')
+
+    def _compute_mean_uncertainty_for_triplet(
+        self,
+        triplet: DatasetTriplet,
+        segpred: Optional[np.ndarray] = None,
+        uncertainty: Optional[np.ndarray] = None,
+    ) -> float:
+        """Load volumes if needed and compute mean uncertainty over segment voxels."""
+        try:
+            if uncertainty is None:
+                uncertainty_file = (
+                    triplet.temp_uncertainty if triplet.temp_uncertainty
+                    else triplet.uncertainty_file
+                )
+                uncertainty = self._load_array(uncertainty_file)
+            if uncertainty is None:
+                return 0.0
+
+            labels = None
+            if triplet.has_segmentation and triplet.segmentation_dir:
+                labels_file = triplet.segmentation_dir / f"{triplet.base_name}_labels.tif"
+                if labels_file.exists():
+                    labels = self._load_array(labels_file)
+
+            if labels is None and segpred is not None:
+                labels = segpred
+
+            if labels is None:
+                return 0.0
+
+            mean_val = self._compute_mean_uncertainty(uncertainty, labels)
+            print(f"  Mean uncertainty (segment voxels): {mean_val:.4f}")
+            return mean_val
+        except Exception as e:
+            print(f"Warning: Could not compute mean uncertainty for {triplet.base_name}: {e}")
+            return 0.0
     
     def _load_existing_segmentation(self, triplet: DatasetTriplet) -> float:
         """
@@ -600,7 +699,7 @@ class DataManager:
             # Create segment priorities from cached data (no need to load large files!)
             triplet.segment_priorities = []
             max_uncertainty = 0.0
-            min_size = 200
+            min_size = DISPLAY_MIN_SIZE_DEFAULT
             segments_processed = 0
             segments_skipped = 0
             voxel_count_at_max = 0
@@ -675,6 +774,8 @@ class DataManager:
             print(f"DEBUG:   Max uncertainty: {max_uncertainty:.4f}")
             if len(triplet.segment_priorities) > 0:
                 print(f"DEBUG:   Top segment: {triplet.segment_priorities[0]}")
+
+            triplet.mean_uncertainty = self._compute_mean_uncertainty_for_triplet(triplet)
             
             return max_uncertainty if max_uncertainty > 0 else 0.0
             
@@ -731,14 +832,7 @@ class DataManager:
                 # Always load/calculate to get segment priorities
                 triplet.priority = self._calculate_priority_for_dataset(triplet)
             
-            # Sort by dataset-level metrics: uncertainty (desc), voxel count (desc), then filename (asc)
-            # Python's sort is stable by default, so we can do two-pass sorting
-            # This ensures deterministic ordering for identical uncertainty+voxel_count
-            self.datasets.sort(key=lambda x: x.base_name)  # Alphabetical (A-Z)
-            self.datasets.sort(key=lambda x: (
-                x.max_uncertainty_excluding_noise if x.max_uncertainty_excluding_noise is not None else -1,
-                x.voxel_count_at_max_uncertainty if x.voxel_count_at_max_uncertainty is not None else 0
-            ), reverse=True)  # Stable sort preserves alphabetical order for ties
+            self.sort_datasets()
             
             # Create flat list of all segment priorities across all datasets
             print(f"\nDEBUG: Building flat segment list...")

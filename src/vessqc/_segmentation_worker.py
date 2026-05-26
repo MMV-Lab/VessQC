@@ -26,6 +26,8 @@ from scipy import ndimage
 from joblib import Parallel, delayed
 import time
 
+from ._constants import NOISE_MIN_SIZE, segment_sort_key
+
 
 class NumpyEncoder(json.JSONEncoder):
     """Custom JSON encoder that handles numpy types"""
@@ -399,7 +401,7 @@ class SegmentationWorker:
         
         # Filter small segments
         print(f"DEBUG: Filtering small segments...")
-        min_size = 200
+        min_size = NOISE_MIN_SIZE
         counts = np.bincount(labels.ravel())
         small_labels = np.where(counts < min_size)[0]
         small_labels = small_labels[small_labels != 0]
@@ -441,7 +443,7 @@ class SegmentationWorker:
             segments.append(segment)
         
         # Sort by uncertainty
-        segments.sort(key=lambda x: x['uncertainty'])
+        segments.sort(key=segment_sort_key)
         
         # Assign names using label IDs
         for i, segment in enumerate(segments, start=1):

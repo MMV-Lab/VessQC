@@ -47,6 +47,15 @@ from tifffile import imread, imwrite
 import time
 from typing import TYPE_CHECKING
 
+from ._constants import (
+    DISPLAY_MIN_SIZE_DEFAULT,
+    DISPLAY_MIN_SIZE_MIN,
+    NOISE_MIN_SIZE,
+    SEGMENT_LIST_POPUP_MIN_WIDTH,
+    TOP5_PANEL_TITLE,
+    format_segment_row_label,
+    segment_sort_key,
+)
 from ._data_manager import DataManager, DatasetTriplet
 from ._loading_dialog import LoadingDialog
 from ._segmentation_worker import SegmentationWorker
@@ -217,10 +226,11 @@ class VessQcWidget(QWidget):
         self.segmentation_worker = SegmentationWorker(callback=self._on_segmentation_complete)
         self.segmentation_worker.start()
         
-        # Cache for original labels (before threshold filtering)
+        # Cache labels/segments after noise floor (50 px); spinbox merges from this baseline
         self.original_labels = None
         self.original_segments = None
-        
+        self._original_noise_label = None
+
         # Persistent image layer settings
         self.image_contrast_limits_relative = None  # Store as (min%, max%) relative to data range
         self.image_gamma = 1.0
@@ -265,15 +275,15 @@ class VessQcWidget(QWidget):
         threshold_layout = QHBoxLayout()
         threshold_layout.addWidget(QLabel('Min segment size:'))
         self.threshold_spinbox = QSpinBox()
-        self.threshold_spinbox.setMinimum(200)  # Minimum value is 200
+        self.threshold_spinbox.setMinimum(DISPLAY_MIN_SIZE_MIN)
         self.threshold_spinbox.setMaximum(1000)
-        self.threshold_spinbox.setValue(200)
+        self.threshold_spinbox.setValue(DISPLAY_MIN_SIZE_DEFAULT)
         self.threshold_spinbox.valueChanged.connect(self._on_threshold_changed)
         threshold_layout.addWidget(self.threshold_spinbox)
         self.layout().addLayout(threshold_layout)
         
         # Top 5 segments quick access panel
-        self.top5_groupbox = QGroupBox('Top 5 Segments (by uncertainty)')
+        self.top5_groupbox = QGroupBox(TOP5_PANEL_TITLE)
         top5_layout = QVBoxLayout()
         self.top5_groupbox.setLayout(top5_layout)
         self.top5_groupbox.setVisible(False)  # Hidden until dataset loaded
@@ -572,18 +582,17 @@ class VessQcWidget(QWidget):
 
         print('Filtering small segments...')
         QApplication.processEvents()
-        
-        # Cache labels BEFORE any Noise grouping for threshold filtering
-        self.original_labels = self.labels.copy()
-        
-        # Determine all labels that appear less than 200 times
-        min_size = 200
-        counts = np.bincount(self.labels.ravel())
-        small_labels = np.where(counts < min_size)[0]
-        small_labels = small_labels[small_labels != 0]
-        print(f'Found {len(small_labels)} small segments (< {min_size} pixels)')
 
-        # Replaces all labels that occur less than 200 times with the value
+        self.original_labels = None
+        self.original_segments = None
+        
+        # Merge segments below noise floor into a single Noise label
+        counts = np.bincount(self.labels.ravel())
+        small_labels = np.where(counts < NOISE_MIN_SIZE)[0]
+        small_labels = small_labels[small_labels != 0]
+        print(f'Found {len(small_labels)} small segments (< {NOISE_MIN_SIZE} pixels)')
+
+        # Replaces all labels that occur less than NOISE_MIN_SIZE times with the value
         # max(labels) + 1
         max_label = np.max(self.labels) + 1
         self._small_segments_label = max_label  # Store for later reference
@@ -622,8 +631,7 @@ class VessQcWidget(QWidget):
             )
             self.segments.append(segment)
 
-        # Sort by 'uncertainty' ascending
-        self.segments.sort(key=lambda x: x['uncertainty'])
+        self._sort_segments()
         print(f'Created {len(self.segments)} segments')
         
         QApplication.processEvents()
@@ -642,12 +650,13 @@ class VessQcWidget(QWidget):
         for seg in self.segments[:5]:
             print(f"  {seg['name']} (label: {seg['label']})")
         
-        # Cache original_segments (excluding Noise) for threshold filtering
-        self.original_segments = [s for s in self.segments if not self._is_small_segment(s)]
-        
-        # Remember the Noise label from original segmentation
+        # Baseline after noise floor: spinbox merges segments smaller than its value into Noise
+        self.original_labels = self.labels.copy()
         self._original_noise_label = max_label
-        
+        self.original_segments = copy.deepcopy(
+            [s for s in self.segments if not self._is_small_segment(s)]
+        )
+
         # Process events to keep UI responsive
         QApplication.processEvents()
 
@@ -655,57 +664,75 @@ class VessQcWidget(QWidget):
         print('Adding segmentation layer to viewer...')
         self.viewer.add_labels(self.labels, name='Segmentation')
         print('Segmentation complete!')
+
+        self.apply_threshold_filter(DISPLAY_MIN_SIZE_DEFAULT)
         
         # Update top 5 panel after segmentation
         self._update_top5_panel()
 
     def _is_small_segment(self, segment):
-        """Check if a segment is the small segments collection"""
+        """Check if a segment is the Noise collection"""
         small_label = getattr(self, '_small_segments_label', None)
         if small_label is not None and segment.get('label') == small_label:
             return True
         return False
-    
+
+    def _sort_segments(self):
+        """Order segments by uncertainty, then size, then label id (highest priority first)."""
+        self.segments.sort(key=segment_sort_key)
+
+    def _configure_segment_list_scroll_area(self, scroll_area: QScrollArea):
+        """Vertical scroll only; content width fits the popup minimum."""
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+
+    def _configure_segment_list_grid(self, grid_layout: QGridLayout):
+        """Column sizing so rows fit without horizontal scrolling."""
+        grid_layout.setColumnStretch(0, 1)
+        grid_layout.setColumnMinimumWidth(1, 52)
+        grid_layout.setColumnMinimumWidth(2, 48)
+        grid_layout.setColumnMinimumWidth(3, 80)
+
     def show_popup_window(self):
         """ Define a pop-up window for the uncertainty list """
 
         # (24.05.2024)
         self.popup_window = QWidget()
         self.popup_window.setWindowTitle('Napari (segment list)')
-        self.popup_window.setMinimumSize(QSize(350, 300))
+        self.popup_window.setMinimumSize(
+            QSize(SEGMENT_LIST_POPUP_MIN_WIDTH, 300)
+        )
         vbox_layout = QVBoxLayout()
         self.popup_window.setLayout(vbox_layout)
 
-        # define a scroll area inside the pop-up window
         scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
+        self._configure_segment_list_scroll_area(scroll_area)
         vbox_layout.addWidget(scroll_area)
 
-        # Define a group box inside the scroll area
         group_box = QGroupBox('List of segments:')
         scroll_area.setWidget(group_box)
         grid_layout = QGridLayout()
         group_box.setLayout(grid_layout)
+        self._configure_segment_list_grid(grid_layout)
 
-        # add widgets to the group box
         grid_layout.addWidget(QLabel('Segment'), 0, 0)
         grid_layout.addWidget(QLabel('Uncertainty'), 0, 1)
         grid_layout.addWidget(QLabel('Counts'), 0, 2)
         grid_layout.addWidget(QLabel('done'), 0, 3)
 
-        # Separate small segments from regular segments
-        regular_segments = [s for s in self.segments if not self._is_small_segment(s) and not s['done']]
+        # Separate regular segments from the Noise collection (already priority-sorted)
+        regular_segments = [
+            s for s in self.segments if not self._is_small_segment(s) and not s['done']
+        ]
         small_segments = [s for s in self.segments if self._is_small_segment(s) and not s['done']]
-        
-        # Reverse regular segments (highest uncertainty first)
-        regular_segments_reversed = list(reversed(regular_segments))
         
         # Track the highlighted button to scroll to it later
         highlighted_button = None
         
-        # Display regular segments (highest uncertainty first)
+        # Display regular segments (highest uncertainty / size first)
         idx = 1
-        for segment in regular_segments_reversed:
+        for segment in regular_segments:
             button = self.new_entry(segment, grid_layout, idx)
             if button and self.current_zoomed_segment and segment.get('label') == self.current_zoomed_segment.get('label'):
                 highlighted_button = button
@@ -727,7 +754,10 @@ class VessQcWidget(QWidget):
         grid_layout.addWidget(line, idx, 0, 1, -1)
 
         # The treated areas are shown in the lower part of the group box
-        treated_segments = [s for s in self.segments if s['done']]
+        treated_segments = sorted(
+            [s for s in self.segments if s['done']],
+            key=segment_sort_key,
+        )
         
         if len(treated_segments) > 0:
             idx += 1
@@ -773,33 +803,32 @@ class VessQcWidget(QWidget):
         
         # Recreate the content (same as show_popup_window)
         scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
+        self._configure_segment_list_scroll_area(scroll_area)
         vbox_layout.addWidget(scroll_area)
         
         group_box = QGroupBox('List of segments:')
         scroll_area.setWidget(group_box)
         grid_layout = QGridLayout()
         group_box.setLayout(grid_layout)
+        self._configure_segment_list_grid(grid_layout)
         
-        # Add headers
         grid_layout.addWidget(QLabel('Segment'), 0, 0)
         grid_layout.addWidget(QLabel('Uncertainty'), 0, 1)
         grid_layout.addWidget(QLabel('Counts'), 0, 2)
         grid_layout.addWidget(QLabel('done'), 0, 3)
         
-        # Separate small segments from regular segments
-        regular_segments = [s for s in self.segments if not self._is_small_segment(s) and not s['done']]
+        # Separate regular segments from the Noise collection (already priority-sorted)
+        regular_segments = [
+            s for s in self.segments if not self._is_small_segment(s) and not s['done']
+        ]
         small_segments = [s for s in self.segments if self._is_small_segment(s) and not s['done']]
-        
-        # Reverse regular segments (highest uncertainty first)
-        regular_segments_reversed = list(reversed(regular_segments))
         
         # Track the highlighted button to scroll to it later
         highlighted_button = None
         
-        # Display regular segments (highest uncertainty first)
+        # Display regular segments (highest uncertainty / size first)
         idx = 1
-        for segment in regular_segments_reversed:
+        for segment in regular_segments:
             button = self.new_entry(segment, grid_layout, idx)
             if button and self.current_zoomed_segment and segment.get('label') == self.current_zoomed_segment.get('label'):
                 highlighted_button = button
@@ -821,7 +850,10 @@ class VessQcWidget(QWidget):
         grid_layout.addWidget(line, idx, 0, 1, -1)
         
         # The treated areas are shown in the lower part of the group box
-        treated_segments = [s for s in self.segments if s['done']]
+        treated_segments = sorted(
+            [s for s in self.segments if s['done']],
+            key=segment_sort_key,
+        )
         
         if len(treated_segments) > 0:
             idx += 1
@@ -951,10 +983,10 @@ class VessQcWidget(QWidget):
             startx:endx]
         cropped_labels = self.labels[startz:endz, starty:endy, startx:endx]
 
-        # Remap segPred to label 1 for consistent coloring (blue)
+        # Remap segPred to label 1 for consistent coloring (red context)
         cropped_segPred_display = np.where(cropped_segPred > 0, 1, 0).astype(np.uint8)
         
-        # Remap segment to label 1 for consistent coloring (red)
+        # Remap segment to label 1 for consistent coloring (blue, segment to edit)
         masked_labels = np.where(cropped_labels == label, 1, 0).astype(np.uint8)
         
         # Create neighboring segments layer (other segments in this region)
@@ -977,17 +1009,18 @@ class VessQcWidget(QWidget):
         image_layer.events.contrast_limits.connect(self._on_image_settings_changed)
         image_layer.events.gamma.connect(self._on_image_settings_changed)
         
-        # Add segPred layer with blue color for vessels
+        # Add segPred layer with red color for vessel context
         segpred_layer = self.viewer.add_labels(cropped_segPred_display, name=name2)
         # Use CyclicLabelColormap - provide same color multiple times to ensure consistency
-        blue_colormap = CyclicLabelColormap(colors=['blue', 'blue'])
-        segpred_layer.colormap = blue_colormap
+        red_colormap = CyclicLabelColormap(colors=['red', 'red'])
+        segpred_layer.colormap = red_colormap
         
-        # Add segment layer with red color for the current segment  
+        # Add segment layer with blue color for the segment being edited
         segment_layer = self.viewer.add_labels(masked_labels, name=name3)
         # Use CyclicLabelColormap - provide same color multiple times to ensure consistency
-        red_colormap = CyclicLabelColormap(colors=['red', 'red'])
-        segment_layer.colormap = red_colormap
+        blue_colormap = CyclicLabelColormap(colors=['blue', 'blue'])
+        segment_layer.colormap = blue_colormap
+        segment_layer.opacity = 1.0
         
         # Add neighboring segments layer (hidden by default)
         neighbors_layer = self.viewer.add_labels(neighboring_segments, name='Neighboring Segments')
@@ -1468,6 +1501,10 @@ class VessQcWidget(QWidget):
             
             # Clear current zoomed segment
             self.current_zoomed_segment = None
+
+            self.original_labels = None
+            self.original_segments = None
+            self._original_noise_label = None
             
             self.current_triplet = triplet
             raw_file, segpred_file, uncertainty_file = self.data_manager.get_files_for_loading(triplet)
@@ -1568,19 +1605,16 @@ class VessQcWidget(QWidget):
                                     seg['name'] = 'Noise'
                                 else:
                                     seg['name'] = f"Segment_{seg['label']}"
-                        
-                        # Cache original for threshold filtering
-                        # Keep Noise label in labels so voxels aren't lost
+
                         self.original_labels = self.labels.copy()
-                        
-                        # Cache segments excluding Noise (will be recreated on threshold change)
-                        self.original_segments = [s for s in self.segments if s.get('label') != max_label]
-                        
-                        # Remember the original Noise label for filtering
                         self._original_noise_label = max_label
+                        self.original_segments = copy.deepcopy(
+                            [s for s in self.segments if s.get('label') != max_label]
+                        )
                         
                         # Display the segmentation layer
                         self.viewer.add_labels(self.labels, name='Segmentation')
+                        self.apply_threshold_filter(self.threshold_spinbox.value())
                         print(f"✓ Loaded dataset: {triplet.base_name} (using precomputed segmentation)")
                     else:
                         # Fallback to calculation
@@ -1617,101 +1651,87 @@ class VessQcWidget(QWidget):
         self.apply_threshold_filter(min_size)
     
     def apply_threshold_filter(self, min_size: int = None):
-        """Apply threshold filter to segments based on size"""
+        """Merge segments smaller than min_size into Noise (from post-50 px baseline)."""
         # (07.10.2025)
         if min_size is None:
             min_size = self.threshold_spinbox.value()
-        
+        min_size = max(min_size, NOISE_MIN_SIZE)
+
         if not hasattr(self, 'labels') or self.labels is None:
             return
-        
-        # Cache original labels if not already cached
+
         if self.original_labels is None:
             self.original_labels = self.labels.copy()
-            self.original_segments = copy.deepcopy(self.segments)
-        
-        # Restore from original
+            if self._original_noise_label is None:
+                noise = [s for s in self.segments if s.get('name') == 'Noise']
+                if noise:
+                    self._original_noise_label = noise[0]['label']
+            noise_label = self._original_noise_label
+            self.original_segments = copy.deepcopy([
+                s for s in self.segments
+                if s.get('label') != noise_label and s.get('name') != 'Noise'
+            ])
+
         self.labels = self.original_labels.copy()
         self.segments = copy.deepcopy(self.original_segments)
-        
-        # Find old Noise label and treat it as background for regrouping
-        old_noise_label = getattr(self, '_original_noise_label', None)
+
+        old_noise_label = self._original_noise_label
+        old_noise_mask = None
         if old_noise_label is not None:
-            # Temporarily set old Noise voxels to 0 so they can be regrouped
             old_noise_mask = self.labels == old_noise_label
             self.labels[old_noise_mask] = 0
-        
-        # Apply new threshold to find small segments
+
         counts = np.bincount(self.labels.ravel())
         small_labels = np.where(counts < min_size)[0]
         small_labels = small_labels[small_labels != 0]
-        print(f'DEBUG: Found {len(small_labels)} small segments with threshold {min_size}')
-        
-        # If there were old Noise voxels, they should all go into new Noise
-        # (they're currently 0, so not counted as small_labels)
-        # Add them to the new Noise group
-        
-        # Replace small labels with new Noise label
+        print(f'DEBUG: Found {len(small_labels)} segments to merge with threshold {min_size}')
+
         max_label = np.max(self.labels) + 1
-        # Group both new small segments AND old Noise voxels
         mask = np.isin(self.labels, small_labels)
-        if old_noise_label is not None:
-            mask = mask | old_noise_mask  # Include old Noise voxels
+        if old_noise_mask is not None:
+            mask = mask | old_noise_mask
         self.labels[mask] = max_label
-        
-        # Update segments list (exclude old Noise)
+
         unique_labels = np.unique(self.labels)
         unique_labels = unique_labels[unique_labels != 0]
         counts = np.bincount(self.labels.ravel())
-        
-        # Filter segments and update counts
+
         filtered_segments = []
         for segment in self.segments:
             label = segment['label']
             if label in unique_labels:
-                # Bounds check for counts array access
                 if label < len(counts):
-                    segment['counts'] = int(counts[label])  # Convert to Python int
+                    segment['counts'] = int(counts[label])
                     filtered_segments.append(segment)
-        
-        # Add the "Noise" group if it exists
+
         if max_label in unique_labels and max_label < len(counts):
-            segment = dict(
+            filtered_segments.append(dict(
                 name='Noise',
                 label=max_label,
                 uncertainty=0.9999,
                 counts=int(counts[max_label]),
                 coords=None,
                 done=False,
-            )
-            filtered_segments.append(segment)
-            self._small_segments_label = max_label  # Update reference
-        
+            ))
+            self._small_segments_label = max_label
+
         self.segments = filtered_segments
-        self.segments.sort(key=lambda x: x['uncertainty'])
-        
-        # Assign names (skip if already named)
-        segment_num = 1
+        self._sort_segments()
+
         for segment in self.segments:
             if segment['name'] == '':
-                segment['name'] = f'Segment_{segment["label"]}'  # Use label ID, not sequential
-                segment_num += 1
-            elif segment['name'] == 'Noise':
-                # Keep the Noise name
-                pass
-        
-        # Update the Segmentation layer if it exists
+                segment['name'] = f'Segment_{segment["label"]}'
+
         if 'Segmentation' in self.viewer.layers:
             self.viewer.layers['Segmentation'].data = self.labels
-        
-        print(f'Threshold updated to {min_size}. Found {len(self.segments)} segments.')
-        
-        # Refresh popup window if it's open
+
+        regular_count = sum(1 for s in self.segments if not self._is_small_segment(s))
+        print(f'Threshold {min_size}: {regular_count} segments (+ Noise).')
+
         if self.popup_window and self.popup_window.isVisible():
             print(f'DEBUG: Refreshing popup window after threshold change')
             self._refresh_popup_window()
-        
-        # Update top 5 panel after threshold change
+
         self._update_top5_panel()
     
     def _save_image_layer_settings(self):
@@ -1792,10 +1812,11 @@ class VessQcWidget(QWidget):
         QApplication.processEvents()
         
         # Get top 5 undone segments (excluding Noise)
-        undone_segments = [s for s in self.segments if not s['done'] and not self._is_small_segment(s)]
-        # Sort by uncertainty descending (highest first)
-        undone_segments_sorted = sorted(undone_segments, key=lambda x: x['uncertainty'], reverse=True)
-        top5 = undone_segments_sorted[:5]
+        undone_segments = [
+            s for s in self.segments
+            if not s['done'] and not self._is_small_segment(s)
+        ]
+        top5 = sorted(undone_segments, key=segment_sort_key)[:5]
         
         if len(top5) == 0:
             self.top5_groupbox.setVisible(False)
@@ -1808,8 +1829,8 @@ class VessQcWidget(QWidget):
             row_layout = QHBoxLayout()
             
             # Segment info label
-            info_label = QLabel(f"{segment['name']} ({segment['uncertainty']:.3f})")
-            info_label.setMinimumWidth(150)
+            info_label = QLabel(format_segment_row_label(segment, short_name=True))
+            info_label.setMinimumWidth(180)
             row_layout.addWidget(info_label)
             
             # Zoom button

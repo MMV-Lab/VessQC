@@ -158,6 +158,65 @@ def test_temp_file_display(loading_dialog, temp_data_dir):
 
 
 @pytest.mark.dialog
+def test_sort_option_labels_reflect_mode(loading_dialog):
+    """Active sort option is normal; the other is greyed out."""
+    from vessqc._constants import DATASET_SORT_MAX, DATASET_SORT_MEAN
+    from vessqc._loading_dialog import _SORT_LABEL_INACTIVE_STYLE
+
+    loading_dialog.data_manager.dataset_sort_mode = DATASET_SORT_MAX
+    loading_dialog._update_sort_option_labels()
+    assert loading_dialog.sort_max_label.text() == 'Max'
+    assert loading_dialog.sort_mean_label.text() == 'Mean'
+    assert loading_dialog.sort_max_label.styleSheet() != _SORT_LABEL_INACTIVE_STYLE
+    assert loading_dialog.sort_mean_label.styleSheet() == _SORT_LABEL_INACTIVE_STYLE
+
+    loading_dialog.data_manager.dataset_sort_mode = DATASET_SORT_MEAN
+    loading_dialog._update_sort_option_labels()
+    assert loading_dialog.sort_mean_label.styleSheet() != _SORT_LABEL_INACTIVE_STYLE
+    assert loading_dialog.sort_max_label.styleSheet() == _SORT_LABEL_INACTIVE_STYLE
+
+
+@pytest.mark.dialog
+def test_sort_switch_handle_matches_checked_state(loading_dialog, qtbot):
+    """Handle offset must match checked state after apply_sort_mode (reopen glitch)."""
+    from vessqc._constants import DATASET_SORT_MEAN
+
+    switch = loading_dialog.mean_sort_switch
+    loading_dialog.data_manager.dataset_sort_mode = DATASET_SORT_MEAN
+    qtbot.addWidget(loading_dialog)
+    loading_dialog.show()
+    qtbot.waitExposed(loading_dialog)
+    loading_dialog._sync_mean_sort_switch()
+
+    expected = switch._offset_for_checkstate(True)
+    assert switch.isChecked()
+    assert abs(switch._get_offset() - expected) < 0.01
+
+
+@pytest.mark.dialog
+def test_sort_mode_mean_display(loading_dialog, temp_data_dir):
+    """Mean sort mode shows mean uncertainty in the list."""
+    from vessqc._constants import DATASET_SORT_MEAN
+
+    triplet = DatasetTriplet(
+        'test',
+        temp_data_dir / 'test_IM.tif',
+        temp_data_dir / 'test_segPred.tif',
+        temp_data_dir / 'test_uncertainty.tif',
+    )
+    triplet.has_segmentation = True
+    triplet.mean_uncertainty = 0.456
+
+    loading_dialog.data_manager.datasets = [triplet]
+    loading_dialog.data_manager.dataset_sort_mode = DATASET_SORT_MEAN
+    loading_dialog._sync_mean_sort_switch()
+    loading_dialog._update_dataset_list()
+
+    item = loading_dialog.dataset_list.item(0)
+    assert 'mean uncertainty: 0.456' in item.text()
+
+
+@pytest.mark.dialog
 def test_all_datasets_displayed(loading_dialog, temp_data_dir):
     """Test that ALL datasets are displayed (not limited to top 10)"""
     # Create 15 datasets
