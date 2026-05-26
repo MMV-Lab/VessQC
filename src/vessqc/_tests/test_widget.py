@@ -317,17 +317,77 @@ def test_done(widget, image, segPred, segPredNew, uncertainty, uncertaintyNew,
     assert segments[3]['done'] == True
 
 
-@pytest.mark.restore
-def test_restore(widget, segments):
+@pytest.mark.re_enable
+def test_re_enable(widget, segments):
     # (13.08.2025)
     widget.segments = segments
     segment = segments[3]
 
     with mock.patch("qtpy.QtWidgets.QWidget.show") as mock_show:
-        widget.restore(segment)
+        widget.re_enable(segment)
         mock_show.assert_called_once()
 
     assert segments[3]['done'] == False
+
+
+@pytest.mark.save_intermediate
+def test_save_intermediate_data(widget, segPred, uncertainty, labels, segments):
+    # (27.09.2024)
+    widget.segPred      = segPred
+    widget.uncertainty  = uncertainty
+    widget.labels       = labels
+    widget.segments     = segments
+    widget.stem1        = 'Box32x32_IM'
+    widget.stem2        = 'Box32x32_segPred'
+    widget.stem3        = 'Box32x32_uncertainty'
+    widget.save_intermediate_data()
+
+    filename = TEMP.joinpath('Box32x32_segPred.npy')
+    loaded_data = np.load(filename)
+    assert np.array_equal(loaded_data, segPred)
+
+    filename = filename.with_name('Box32x32_uncertainty.npy')
+    loaded_data = np.load(filename)
+    assert np.array_equal(loaded_data, uncertainty)
+
+    filename = filename.with_name('Box32x32_labels.npy')
+    loaded_data = np.load(filename)
+    assert np.array_equal(loaded_data, labels)
+
+    filename = filename.with_name('Box32x32_segments.json')
+    with filename.open('r', encoding='utf-8') as file:
+        loaded_data = json.load(file)
+    assert loaded_data == segments
+
+
+@pytest.mark.save_intermediate_with_exc
+def test_save_intermediate_data_with_exc(widget, segments):
+    # (27.09.2024)
+    widget.segPred     = np.ones((3, 3, 3), dtype=np.int32)
+    widget.uncertainty = np.random.rand(3, 3, 3)
+    widget.labels      = np.ones((3, 3, 3), dtype=np.int32)
+    widget.segments    = segments
+    widget.stem1       = 'test_save_IM'
+    widget.stem2       = 'test_save_segPred'
+    widget.stem3       = 'test_save_uncertainty'
+
+    # Simulate an exception when opening the file
+    with mock.patch("pathlib.Path.open", side_effect=OSError("File error")), \
+         mock.patch("qtpy.QtWidgets.QMessageBox.warning") as mock_warning:
+        widget.save_intermediate_data()
+        assert mock_warning.call_count == 1
+
+    filename = TEMP.joinpath('test_save_segPred.npy')
+    assert not filename.exists()
+
+    filename = filename.with_name('test_save_uncertainty.npy')
+    assert not filename.exists()
+
+    filename = filename.with_name('test_save_labels.npy')
+    assert not filename.exists()
+
+    filename = filename.with_name('test_save_segments.json')
+    assert not filename.exists()
 
 
 @pytest.mark.load_intermediate
