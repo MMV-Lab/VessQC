@@ -18,7 +18,7 @@ current dims point (`viewer.dims.point`).
 from copy import deepcopy
 
 import numpy as np
-from qtpy.QtCore import Qt
+from qtpy.QtCore import Qt, QTimer
 from qtpy.QtWidgets import (
     QCheckBox,
     QSplitter,
@@ -148,6 +148,8 @@ class CrossWidget(QCheckBox):
         self.setChecked(False)
         self.stateChanged.connect(self._update_cross_visibility)
         self.layer = None
+        self._layer_updates_blocked = False
+        self._dataset_load_in_progress = False
         self.viewer.dims.events.order.connect(self.update_cross)
         self.viewer.dims.events.ndim.connect(self._update_ndim)
         self.viewer.dims.events.current_step.connect(self.update_cross)
@@ -156,39 +158,135 @@ class CrossWidget(QCheckBox):
         self._update_extent()
         self.viewer.dims.events.connect(self._update_extent)
 
-    @qthrottled(leading=False)
-    def _update_extent(self):
-        """
-        Calculate the extent of the data.
+    def set_dataset_load_in_progress(self, active: bool) -> None:
+        """Suppress throttled extent/cross updates while a dataset is loading."""
+        self._dataset_load_in_progress = active
 
-        Ignores the layer with cross itself in calculating the extent.
-        """
+    def _compute_extent(self) -> None:
+        """Calculate data extent (excluding the cross layer)."""
         layers = [
             layer
             for layer in self.viewer.layers
-            if layer is not self.layer
+            if layer is not self.layer and layer.name != '.cross'
         ]
+        if not layers:
+            self._extent = None
+            return
         self._extent = self.viewer.layers.get_extent(layers)
+
+    def _refresh_extent_now(self) -> None:
+        """Synchronous extent refresh (throttled handler may not have run yet)."""
+        self._compute_extent()
+
+    @qthrottled(leading=False)
+    def _update_extent(self):
+        if self._dataset_load_in_progress:
+            return
+        self._compute_extent()
         self.update_cross()
+
+    def _make_cross_layer(self, ndim: int) -> Vectors:
+        layer = Vectors(name='.cross', ndim=ndim)
+        layer.edge_width = 1.5
+        layer.vector_style = 'line'
+        return layer
+
+    def _append_cross_layer(self) -> None:
+        """Add cross to the main viewer once (no auto-select)."""
+        if self.layer is None or self.layer in self.viewer.layers:
+            return
+        layers = self.viewer.layers
+        restore_activate = layers._activate_on_insert
+        layers._activate_on_insert = False
+        try:
+            layers.append(self.layer)
+        finally:
+            layers._activate_on_insert = restore_activate
+
+    def detach_from_viewer(self, *, block_updates: bool = False) -> None:
+        """Remove cross from the layer list (e.g. before loading a new dataset)."""
+        if block_updates:
+            self._layer_updates_blocked = True
+        if self.layer is not None and self.layer in self.viewer.layers:
+            self.viewer.layers.remove(self.layer)
+
+    def _has_data_layers(self) -> bool:
+        """True if the viewer has at least one non-cross layer."""
+        return any(layer.name != '.cross' for layer in self.viewer.layers)
+
+    def attach_after_dataset_load(self, visible: bool, *, on_complete=None) -> None:
+        """
+        Insert cross once after data layers exist (hidden or visible).
+
+        Deferred to the next event-loop tick so extent is current and layer
+        controls are not built while the load path is still unwinding.
+        """
+        self._layer_updates_blocked = False
+        self.layer = self._make_cross_layer(self.viewer.dims.ndim)
+
+        def _finish_attach() -> None:
+            if self.layer is None:
+                if on_complete is not None:
+                    on_complete()
+                return
+            if self.layer not in self.viewer.layers:
+                self._append_cross_layer()
+            self._refresh_extent_now()
+            self.layer.visible = visible
+            self.update_cross()
+            if on_complete is not None:
+                on_complete()
+
+        QTimer.singleShot(0, _finish_attach)
 
     def _update_ndim(self, event):
-        if self.layer in self.viewer.layers:
+        if self._layer_updates_blocked:
+            self.layer = self._make_cross_layer(event.value)
+            return
+
+        was_in_list = self.layer is not None and self.layer in self.viewer.layers
+        was_visible = was_in_list and self.layer.visible
+        if was_in_list:
             self.viewer.layers.remove(self.layer)
-        self.layer = Vectors(name='.cross', ndim=event.value)
-        self.layer.edge_width = 1.5
-        self.layer.vector_style = 'line'    # new line
+        self.layer = self._make_cross_layer(event.value)
+        if was_in_list or self.isChecked():
+            self._append_cross_layer()
+            self.layer.visible = was_visible if was_in_list else self.isChecked()
         self.update_cross()
+
+    def _ensure_cross_layer(self) -> None:
+        """Create the vectors layer once dims are known (if ndim event has not)."""
+        if self.layer is not None:
+            return
+        self.layer = self._make_cross_layer(self.viewer.dims.ndim)
 
     def _update_cross_visibility(self, state):
-        if state:
-            self.viewer.layers.append(self.layer)
-        else:
-            self.viewer.layers.remove(self.layer)
-        self.update_cross()
+        # Toggle visibility only when cross is already in the layer list.
+        checked = state == Qt.Checked
+        self._ensure_cross_layer()
+        if checked and self.layer not in self.viewer.layers:
+            if self._has_data_layers():
+                self._append_cross_layer()
+            else:
+                return
+        if self.layer in self.viewer.layers:
+            self.layer.visible = checked
+            self.update_cross()
 
     def update_cross(self):
-        if self.layer not in self.viewer.layers:
+        if self.layer is None or self.layer not in self.viewer.layers:
             return
+        if self._extent is None:
+            return
+
+        step = np.asarray(self._extent.step, dtype=float)
+        if step.size != self.layer.ndim:
+            self._refresh_extent_now()
+            if self._extent is None:
+                return
+            step = np.asarray(self._extent.step, dtype=float)
+            if step.size != self.layer.ndim:
+                return
 
         point = self.viewer.dims.current_step
         vec = []
@@ -202,8 +300,9 @@ class CrossWidget(QCheckBox):
             point2 = [0 for _ in point]
             point2[i] = (upper - lower) / self._extent.step[i]
             vec.append((point1, point2))
-        if np.any(self.layer.scale != self._extent.step):
-            self.layer.scale = self._extent.step
+        scale = np.asarray(self.layer.scale, dtype=float)
+        if scale.shape == step.shape and np.any(scale != step):
+            self.layer.scale = step
         self.layer.data = vec
 
 
@@ -218,11 +317,13 @@ class MultipleViewerWidget(QSplitter):
         self.viewer_model1 = ViewerModel(title='model1')
         self.viewer_model2 = ViewerModel(title='model2')
         self._block = False
-        self.qt_viewer1 = QtViewerWrap(viewer, self.viewer_model1)
-        self.qt_viewer2 = QtViewerWrap(viewer, self.viewer_model2)
-        # viewer_splitter = QSplitter()
+        self._defer_aux_sync = False
         viewer_splitter = QSplitter(self)
         viewer_splitter.setOrientation(Qt.Orientation.Vertical)
+        self.qt_viewer1 = QtViewerWrap(viewer, self.viewer_model1)
+        self.qt_viewer2 = QtViewerWrap(viewer, self.viewer_model2)
+        self.qt_viewer1.setParent(viewer_splitter)
+        self.qt_viewer2.setParent(viewer_splitter)
         viewer_splitter.addWidget(self.qt_viewer1)
         viewer_splitter.addWidget(self.qt_viewer2)
         viewer_splitter.setContentsMargins(0, 0, 0, 0)
@@ -310,45 +411,78 @@ class MultipleViewerWidget(QSplitter):
         order[-3:] = order[-1], order[-2], order[-3]
         self.viewer_model2.dims.order = tuple(order)
 
-    def _layer_added(self, event):
-        """add layer to additional viewers and connect all required events"""
-        self.viewer_model1.layers.insert(
-            event.index, copy_layer(event.value, 'model1')
-        )
-        self.viewer_model2.layers.insert(
-            event.index, copy_layer(event.value, 'model2')
-        )
-        for name in get_property_names(event.value):
-            getattr(event.value.events, name).connect(
+    def begin_dataset_load(self) -> None:
+        """Defer layer mirroring until load completes (no hide/show)."""
+        self._defer_aux_sync = True
+
+    def end_dataset_load(self) -> None:
+        """Mirror all data layers to aux viewers once after load."""
+        self._defer_aux_sync = False
+        self._sync_aux_layers_from_main()
+
+    def set_aux_sync_deferred(self, deferred: bool) -> None:
+        """Defer mirroring layers to auxiliary viewers (e.g. during dataset load)."""
+        self._defer_aux_sync = deferred
+        if not deferred:
+            self._sync_aux_layers_from_main()
+
+    def _sync_aux_layers_from_main(self) -> None:
+        """Rebuild auxiliary viewer layers from the main viewer (excluding .cross)."""
+        for model in (self.viewer_model1, self.viewer_model2):
+            while len(model.layers) > 0:
+                model.layers.pop()
+        aux_index = 0
+        for layer in self.viewer.layers:
+            if layer.name == '.cross':
+                continue
+            self._add_layer_to_aux_viewers(aux_index, layer)
+            aux_index += 1
+        self._order_update()
+
+    def _add_layer_to_aux_viewers(self, index: int, layer: Layer) -> None:
+        """Mirror one main-viewer layer into the auxiliary viewers."""
+        self.viewer_model1.layers.insert(index, copy_layer(layer, 'model1'))
+        self.viewer_model2.layers.insert(index, copy_layer(layer, 'model2'))
+        for name in get_property_names(layer):
+            getattr(layer.events, name).connect(
                 own_partial(self._property_sync, name)
             )
 
-        if isinstance(event.value, Labels):
-            event.value.events.set_data.connect(self._set_data_refresh)
-            event.value.events.labels_update.connect(self._set_data_refresh)
-            self.viewer_model1.layers[
-                event.value.name
-            ].events.set_data.connect(self._set_data_refresh)
-            self.viewer_model2.layers[
-                event.value.name
-            ].events.set_data.connect(self._set_data_refresh)
-            event.value.events.labels_update.connect(self._set_data_refresh)
-            self.viewer_model1.layers[
-                event.value.name
-            ].events.labels_update.connect(self._set_data_refresh)
-            self.viewer_model2.layers[
-                event.value.name
-            ].events.labels_update.connect(self._set_data_refresh)
-        if event.value.name != '.cross':
-            self.viewer_model1.layers[event.value.name].events.data.connect(
-                self._sync_data
+        if isinstance(layer, Labels):
+            layer.events.set_data.connect(self._set_data_refresh)
+            layer.events.labels_update.connect(self._set_data_refresh)
+            self.viewer_model1.layers[layer.name].events.set_data.connect(
+                self._set_data_refresh
             )
-            self.viewer_model2.layers[event.value.name].events.data.connect(
-                self._sync_data
+            self.viewer_model2.layers[layer.name].events.set_data.connect(
+                self._set_data_refresh
             )
+            layer.events.labels_update.connect(self._set_data_refresh)
+            self.viewer_model1.layers[layer.name].events.labels_update.connect(
+                self._set_data_refresh
+            )
+            self.viewer_model2.layers[layer.name].events.labels_update.connect(
+                self._set_data_refresh
+            )
+        self.viewer_model1.layers[layer.name].events.data.connect(
+            self._sync_data
+        )
+        self.viewer_model2.layers[layer.name].events.data.connect(
+            self._sync_data
+        )
 
-        event.value.events.name.connect(self._sync_name)
+        layer.events.name.connect(self._sync_name)
 
+    def _layer_added(self, event):
+        """add layer to additional viewers and connect all required events"""
+        # Cross lives only on the main viewer; mirroring it spins up extra
+        # QtViewer/VisPy work and can flash brief empty top-level windows.
+        if event.value.name == '.cross':
+            return
+        if self._defer_aux_sync:
+            return
+
+        self._add_layer_to_aux_viewers(event.index, event.value)
         self._order_update()
 
     def _sync_name(self, event):
@@ -401,6 +535,8 @@ class MultipleViewerWidget(QSplitter):
 
     def _layer_removed(self, event):
         """remove layer in all viewers"""
+        if event.value.name == '.cross':
+            return
 
         if event.index >= len(self.viewer_model1.layers):       # ChatGPT
             return

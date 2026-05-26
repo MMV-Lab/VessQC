@@ -39,8 +39,15 @@ class Segment:
 
     # (29.04.2026)
     name: str
-    label: str
+    label: int
     uncertainty: float
     count: int
     coords: Optional[list] = None
     done: bool = False
+
+    def __post_init__(self) -> None:
+        """Normalize numeric fields for robust JSON round-trips."""
+        self.label = int(self.label)
+        self.uncertainty = float(self.uncertainty)
+        self.count = int(self.count)
+        self.done = bool(self.done)

@@ -105,8 +105,28 @@ def load_segments(filename: Path) -> List[Segment]:
     with filename.open('r', encoding='utf-8') as f:
         data = json.load(f)
 
-    # Reconstruct Segment objects from dictionaries.
-    segments = [Segment(**seg) for seg in data]
+    if not data:
+        return []
+
+    max_label = max(int(seg.get('label', 0)) for seg in data)
+    segments: List[Segment] = []
+    for seg in data:
+        label = int(seg.get('label', 0))
+        name = seg.get('name') or seg.get('custom_name')
+        if not name:
+            name = 'Noise' if label == max_label else f'Segment_{label}'
+        elif label == max_label and name == 'Small_Segments':
+            name = 'Noise'
+
+        segment = Segment(
+            name=name,
+            label=label,
+            uncertainty=float(seg.get('uncertainty', 0.0)),
+            count=int(seg.get('count', seg.get('counts', 0))),
+            coords=seg.get('coords'),
+            done=bool(seg.get('done', False)),
+        )
+        segments.append(segment)
     return segments
 
 def build_filename(stem: str, suffix: str):
