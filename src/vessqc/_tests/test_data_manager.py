@@ -141,8 +141,8 @@ def test_segmentation_detection(data_manager, temp_data_dir):
     seg_dir = data_manager.segmentation_dir
     labels = np.random.randint(0, 5, (10, 10, 10)).astype(np.int32)
     segments = [
-        {'name': 'Segment_1', 'label': 1, 'uncertainty': 0.5, 'counts': 100, 'coords': None, 'done': False},
-        {'name': 'Segment_2', 'label': 2, 'uncertainty': 0.8, 'counts': 50, 'coords': None, 'done': False}
+        {'name': 'Segment_1', 'label': 1, 'uncertainty': 0.5, 'count': 100, 'coords': None, 'done': False},
+        {'name': 'Segment_2', 'label': 2, 'uncertainty': 0.8, 'count': 50, 'coords': None, 'done': False}
     ]
     
     imwrite(seg_dir / 'test_labels.tif', labels)
@@ -164,9 +164,9 @@ def test_load_existing_segmentation_filters_done(data_manager, temp_data_dir):
     seg_dir = data_manager.segmentation_dir
     labels = np.ones((10, 10, 10), dtype=np.int32)
     segments = [
-        {'label': 1, 'uncertainty': 0.9, 'counts': 300, 'coords': None, 'done': True},
-        {'label': 2, 'uncertainty': 0.8, 'counts': 280, 'coords': None, 'done': False},
-        {'label': 99, 'uncertainty': 0.9999, 'counts': 60, 'coords': None, 'done': False}  # Noise
+        {'label': 1, 'uncertainty': 0.9, 'count': 300, 'coords': None, 'done': True},
+        {'label': 2, 'uncertainty': 0.8, 'count': 280, 'coords': None, 'done': False},
+        {'label': 99, 'uncertainty': 0.9999, 'count': 60, 'coords': None, 'done': False}  # Noise
     ]
     
     imwrite(seg_dir / 'test_labels.tif', labels)
@@ -192,9 +192,9 @@ def test_load_existing_segmentation_filters_noise_by_label(data_manager, temp_da
     seg_dir = data_manager.segmentation_dir
     labels = np.ones((10, 10, 10), dtype=np.int32)
     segments = [
-        {'label': 1, 'uncertainty': 0.8, 'counts': 300, 'coords': None, 'done': False},
-        {'label': 2, 'uncertainty': 1.0, 'counts': 350, 'coords': None, 'done': False},  # Real segment with uncertainty 1.0
-        {'label': 99, 'uncertainty': 0.9999, 'counts': 20, 'coords': None, 'done': False}  # Noise (max label)
+        {'label': 1, 'uncertainty': 0.8, 'count': 300, 'coords': None, 'done': False},
+        {'label': 2, 'uncertainty': 1.0, 'count': 350, 'coords': None, 'done': False},  # Real segment with uncertainty 1.0
+        {'label': 99, 'uncertainty': 0.9999, 'count': 20, 'coords': None, 'done': False}  # Noise (max label)
     ]
     
     imwrite(seg_dir / 'test_labels.tif', labels)
@@ -212,6 +212,38 @@ def test_load_existing_segmentation_filters_noise_by_label(data_manager, temp_da
     uncertainties = [s.uncertainty for s in triplet.segment_priorities]
     assert 1.0 in uncertainties
     assert 0.9999 not in uncertainties  # Noise excluded
+
+
+@pytest.mark.data_manager
+def test_load_existing_segmentation_uses_custom_name(data_manager, temp_data_dir):
+    """SegmentPriority.segment_name reflects custom_name from segments JSON."""
+    data_manager.set_data_directory(temp_data_dir)
+
+    seg_dir = data_manager.segmentation_dir
+    labels = np.ones((10, 10, 10), dtype=np.int32)
+    segments = [
+        {
+            'label': 1,
+            'uncertainty': 0.85,
+            'count': 300,
+            'coords': None,
+            'done': False,
+            'custom_name': 'Artery_main',
+        },
+        {'label': 99, 'uncertainty': 0.9999, 'count': 60, 'coords': None, 'done': False},
+    ]
+
+    imwrite(seg_dir / 'test_labels.tif', labels)
+    with (seg_dir / 'test_segments.json').open('w') as f:
+        json.dump(segments, f)
+
+    datasets = data_manager.detect_datasets()
+    triplet = datasets[0]
+
+    data_manager._load_existing_segmentation(triplet)
+
+    assert len(triplet.segment_priorities) == 1
+    assert triplet.segment_priorities[0].segment_name == 'Artery_main'
 
 
 @pytest.mark.data_manager
@@ -245,9 +277,9 @@ def test_priority_calculation_excludes_done(data_manager, temp_data_dir):
     seg_dir = data_manager.segmentation_dir
     labels = np.ones((10, 10, 10), dtype=np.int32)
     segments = [
-        {'label': 1, 'uncertainty': 0.9, 'counts': 300, 'coords': None, 'done': True},
-        {'label': 2, 'uncertainty': 0.5, 'counts': 280, 'coords': None, 'done': False},
-        {'label': 99, 'uncertainty': 0.9999, 'counts': 20, 'coords': None, 'done': False}  # Noise
+        {'label': 1, 'uncertainty': 0.9, 'count': 300, 'coords': None, 'done': True},
+        {'label': 2, 'uncertainty': 0.5, 'count': 280, 'coords': None, 'done': False},
+        {'label': 99, 'uncertainty': 0.9999, 'count': 20, 'coords': None, 'done': False}  # Noise
     ]
     
     imwrite(seg_dir / 'test_labels.tif', labels)
@@ -270,10 +302,10 @@ def test_dataset_metrics_excluding_noise(data_manager, temp_data_dir):
     seg_dir = data_manager.segmentation_dir
     labels = np.ones((10, 10, 10), dtype=np.int32)
     segments = [
-        {'label': 1, 'uncertainty': 0.7, 'counts': 300, 'coords': None, 'done': False},
-        {'label': 2, 'uncertainty': 0.9, 'counts': 500, 'coords': None, 'done': False},
-        {'label': 3, 'uncertainty': 0.9, 'counts': 300, 'coords': None, 'done': False},  # Same uncertainty as label 2
-        {'label': 99, 'uncertainty': 0.9999, 'counts': 50, 'coords': None, 'done': False}  # Noise (max label)
+        {'label': 1, 'uncertainty': 0.7, 'count': 300, 'coords': None, 'done': False},
+        {'label': 2, 'uncertainty': 0.9, 'count': 500, 'coords': None, 'done': False},
+        {'label': 3, 'uncertainty': 0.9, 'count': 300, 'coords': None, 'done': False},  # Same uncertainty as label 2
+        {'label': 99, 'uncertainty': 0.9999, 'count': 50, 'coords': None, 'done': False}  # Noise (max label)
     ]
     
     imwrite(seg_dir / 'test_labels.tif', labels)
@@ -299,9 +331,9 @@ def test_dataset_metrics_with_uncertainty_1_0(data_manager, temp_data_dir):
     seg_dir = data_manager.segmentation_dir
     labels = np.ones((10, 10, 10), dtype=np.int32)
     segments = [
-        {'label': 1, 'uncertainty': 1.0, 'counts': 400, 'coords': None, 'done': False},  # Real segment
-        {'label': 2, 'uncertainty': 0.8, 'counts': 200, 'coords': None, 'done': False},
-        {'label': 99, 'uncertainty': 0.9999, 'counts': 50, 'coords': None, 'done': False}  # Noise
+        {'label': 1, 'uncertainty': 1.0, 'count': 400, 'coords': None, 'done': False},  # Real segment
+        {'label': 2, 'uncertainty': 0.8, 'count': 200, 'coords': None, 'done': False},
+        {'label': 99, 'uncertainty': 0.9999, 'count': 50, 'coords': None, 'done': False}  # Noise
     ]
     
     imwrite(seg_dir / 'test_labels.tif', labels)
@@ -352,8 +384,8 @@ def test_dataset_sorting_by_mean_uncertainty(data_manager, temp_data_dir):
         imwrite(temp_data_dir / f'{dataset_name}_uncertainty.tif', uncertainty)
         imwrite(seg_dir / f'{dataset_name}_labels.tif', labels)
         segments = [
-            {'label': 1, 'uncertainty': fill_value, 'counts': 1000, 'coords': None, 'done': False},
-            {'label': 99, 'uncertainty': 0.9999, 'counts': 10, 'coords': None, 'done': False},
+            {'label': 1, 'uncertainty': fill_value, 'count': 1000, 'coords': None, 'done': False},
+            {'label': 99, 'uncertainty': 0.9999, 'count': 10, 'coords': None, 'done': False},
         ]
         with (seg_dir / f'{dataset_name}_segments.json').open('w') as f:
             json.dump(segments, f)
@@ -390,8 +422,8 @@ def test_dataset_sorting_by_metrics(data_manager, temp_data_dir):
         # Create segmentation
         labels = np.ones((10, 10, 10), dtype=np.int32)
         segments = [
-            {'label': 1, 'uncertainty': uncert, 'counts': count, 'coords': None, 'done': False},
-            {'label': 99, 'uncertainty': 0.9999, 'counts': 10, 'coords': None, 'done': False}
+            {'label': 1, 'uncertainty': uncert, 'count': count, 'coords': None, 'done': False},
+            {'label': 99, 'uncertainty': 0.9999, 'count': 10, 'coords': None, 'done': False}
         ]
         
         imwrite(seg_dir / f'{dataset_name}_labels.tif', labels)

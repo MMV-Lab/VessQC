@@ -1,22 +1,16 @@
 """
-Module for the definition of the class VessQcWidget
+_widget.py
 
-Imports
+Classes
 -------
-napari, napari.utils.colormaps, numpy, pathlib.Path, qtpy.QtCore.QSize, 
-qtpy.QtCore.QT, qtpy.QtWidgets, scipy.ndimage, SimpleITK, tifffile.imread, 
-tifffile.imwrite
-
-Exports
--------
-VessQcWidget
+VessQCWidget
+    Class for displaying and correcting a 3D image of blood vessels.
 """
 
 # Copyright © Peter Lampen, ISAS Dortmund, 2024
 # (03.05.2024)
 
 import copy
-from joblib import Parallel, delayed
 import json
 import numpy as np
 import napari
@@ -41,12 +35,26 @@ from qtpy.QtWidgets import (
     QSizePolicy,
 )
 from scipy import ndimage
+from joblib import Parallel, delayed
 import SimpleITK as sitk
-import tempfile
 from tifffile import imread, imwrite
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
+from .geometry import (
+    compute_bbox,
+    expand_bbox,
+    crop_volumes,
+)
+from .io_utils import (
+    save_npy,
+    load_npy,
+    save_segments,
+    load_segments,
+    build_filename,
+)
+from .multiple_viewer_widget import MultipleViewerWidget, CrossWidget
+from .models import Segment
 from ._constants import (
     DISPLAY_MIN_SIZE_DEFAULT,
     DISPLAY_MIN_SIZE_MIN,
@@ -54,7 +62,17 @@ from ._constants import (
     SEGMENT_LIST_POPUP_MIN_WIDTH,
     TOP5_PANEL_TITLE,
     format_segment_row_label,
+    segment_coords,
+    segment_count,
+    segment_done,
+    segment_label,
+    segment_name,
     segment_sort_key,
+    segment_uncertainty,
+    set_segment_coords,
+    set_segment_count,
+    set_segment_done,
+    set_segment_name,
 )
 from ._data_manager import DataManager, DatasetTriplet
 from ._loading_dialog import LoadingDialog
@@ -62,6 +80,67 @@ from ._segmentation_worker import SegmentationWorker
 
 if TYPE_CHECKING:
     import napari
+
+def display_cropped(viewer: napari.viewer.Viewer, stem1: str, stem2: str,
+    segment_name: str, cropped: dict):
+    """
+    Plotting in Napari
+
+    Parameters
+    ----------
+    viewer : napari.viewer.Viewer
+    stem1 : str
+        Name of the input data file
+    stem2 : str
+        Name of the '_segPred' data file
+    segment_name : str
+        Name of the segment
+    croped : dict
+        Dictionary with the keys:
+        - image : np.ndarray
+        - segPred : np.ndarray
+        - labels : np.ndarray
+
+    Returns
+    -------
+    layer : napari.layers.Layer
+    """
+
+    # (06.03.2026)
+    name1 = 'Cropped ' + stem1
+    name2 = 'Cropped ' + stem2
+
+    viewer.add_image( cropped["image"],   name=name1)
+    viewer.add_labels(cropped["segPred"], name=name2)
+
+    layer = viewer.add_labels(cropped["labels"], name=segment_name)
+
+    return layer
+
+def focus_viewer(viewer: napari.viewer.Viewer, labels: np.ndarray, label: int,
+    layer: napari.layers.Layer):
+    """
+    Focus the camera
+
+    Parameters
+    ----------
+    viewer : napari.viewer.Viewer
+    labels : np.ndarray
+        3D array with segmentation labels
+    label : int
+        selected label
+    layer : napari.layers.Layer
+    """
+
+    # (06.03.2026)
+    center_of_mass = ndimage.center_of_mass(labels)
+    center_of_mass = tuple(int(round(c)) for c in center_of_mass)
+
+    viewer.dims.current_step = center_of_mass
+    viewer.camera.center = center_of_mass
+
+    # Change to the matching color
+    layer.selected_label = label
 
 
 def _label_value_sparse(uncertainty, uncert, tolerance, structure, value_idx,
@@ -130,32 +209,42 @@ class NumpyEncoder(json.JSONEncoder):
         return super().default(obj)
 
 
-class VessQcWidget(QWidget):
+class VessQCWidget(QWidget):
     """
-    Main widget of a Napari plugin for checking the calculation of blood vessels
+    Class for displaying and correcting a 3D image of blood vessels
+
+    Parameters
+    ----------
+    napari_viewer : napari.viewer.Viewer
 
     Attributes
     ----------
-    viewer : class napari.viewer
+    viewer : napari.viewer.Viewer
         Napari viewer
-    start_multiple_viewer : bool
-        Call the multiple viewer and the cross widget?
+    segments : List
+        List of Segments
     save_uncertainty : bool
         Save the file 'Uncertainty.tif'?
-    areas : dict
-        Contains information about the various areas
+    dock_widget : MultipleViewerWidget
+        MultipleViewerWidget from multiple_viewer_widget.py
+    cross : QCheckBox
+        Widget for displaying a crosshair
     parent : str
-        Directory of data files
-    suffix : str
-        Extension of the data file (e.g '.tif')
-    is_tifffile : bool
-        Is the file extension '.tif' or '.tiff'?
-    image : numpy.ndarray
+        Directory of the data files
+    stem1 : str
+        Name of the input data file
+    stem2 : str
+        Name of the '_segPred' data file
+    stem3 : str
+        Name of the '_uncertainty' data file
+    image : np.ndarray
         3D array with image data
-    segPred : numpy.ndarray
-        3D array with the vessel data
-    uncertainty : numpy.ndarray
-        3D array with uncertainties
+    segPred : np.ndarray
+        3D array with the predicted segmentation data
+    uncertainty : np.ndarray
+        3D array with uncertainty data
+    labels : np.ndarray
+        3D array with segmentation labels
     popup_window : QWidget
         Pop up window with uncertainty values
 
@@ -198,19 +287,18 @@ class VessQcWidget(QWidget):
         Show information about the current layer
     """
 
-    def __init__(self, viewer: "napari.viewer.Viewer"):
+    def __init__(self, napari_viewer: "napari.viewer.Viewer"):
         """
         Class constructor
 
         Parameter
         ---------
-        viewer : widget
-            napari.viewer
+        napari_viewer : napari.viewer.Viewer
         """
 
         # (03.05.2024)
         super().__init__()
-        self.viewer = viewer
+        self.viewer = napari_viewer
         self.segments = []
         self.save_uncertainty = False
         
@@ -241,18 +329,18 @@ class VessQcWidget(QWidget):
         self.threshold_timer.timeout.connect(self._apply_threshold_debounced)
         
         # Connect to viewer window close event
-        if hasattr(viewer.window, '_qt_window'):
-            viewer.window._qt_window.destroyed.connect(self._on_viewer_destroyed)
+        if hasattr(self.viewer.window, '_qt_window'):
+            self.viewer.window._qt_window.destroyed.connect(self._on_viewer_destroyed)
 
         # Define the layout of the main widget
-        self.setLayout(QVBoxLayout())
+        layout = QVBoxLayout(self)
 
         # Define some labels and buttons
         label1 = QLabel('Vessel quality check')
         font = label1.font()
         font.setPointSize(12)
         label1.setFont(font)
-        self.layout().addWidget(label1)
+        layout.addWidget(label1)
 
         # Loading button
         btnLoadDataset = QPushButton('Load Dataset')
@@ -261,11 +349,11 @@ class VessQcWidget(QWidget):
 
         btnShowUncert = QPushButton('Show uncertainty data')
         btnShowUncert.clicked.connect(self.show_uncertainty)
-        self.layout().addWidget(btnShowUncert)
+        layout.addWidget(btnShowUncert)
 
         label2 = QLabel('_______________')
         label2.setAlignment(Qt.AlignHCenter)
-        self.layout().addWidget(label2)
+        layout.addWidget(label2)
 
         label3 = QLabel('Curation')
         label3.setFont(font)
@@ -306,19 +394,29 @@ class VessQcWidget(QWidget):
 
         btnSaveIntermediate = QPushButton('Save intermediate data')
         btnSaveIntermediate.clicked.connect(self.save_intermediate_data)
-        self.layout().addWidget(btnSaveIntermediate)
+        layout.addWidget(btnSaveIntermediate)
 
         label4 = QLabel('_______________')
         label4.setAlignment(Qt.AlignHCenter)
-        self.layout().addWidget(label4)
+        layout.addWidget(label4)
 
         btnSaveResult = QPushButton('Save final result')
         btnSaveResult.clicked.connect(self.save_final_result)
-        self.layout().addWidget(btnSaveResult)
+        layout.addWidget(btnSaveResult)
 
         cbxSaveUncertainty = QCheckBox('Save uncertainty')
         cbxSaveUncertainty.stateChanged.connect(self.checkbox_save_uncertainty)
         self.layout().addWidget(cbxSaveUncertainty)
+ 
+        # Insert the Napari “Multiple Viewer Widget”
+        self.dock_widget = MultipleViewerWidget(self.viewer, parent=self)
+        self.viewer.window.add_dock_widget(self.dock_widget, name='Sample')
+
+        # Add the cross widget (on the left in the viewer area)
+        self.cross = CrossWidget(self.viewer, parent=self)
+        self.viewer.window.add_dock_widget(self.cross, name='Cross', area='left')
+
+        self.setLayout(layout)
     
     def closeEvent(self, event):
         """Handle widget close event"""
@@ -387,15 +485,15 @@ class VessQcWidget(QWidget):
             return
 
         filename = Path(filename)
-        self.parent = filename.parent           # The data directory
-        self.stem1  = filename.stem             # Name of the input file
+        self.parent = filename.parent           # The image directory
+        self.stem1  = filename.stem             # Name of the image file
         suffix      = filename.suffix.lower()   # File extension
         # Truncate the extension .nii
         if suffix == '.gz' and self.stem1[-4:] == '.nii':
             self.stem1 = self.stem1[:-4]
 
         # Load the image file
-        print('Load', filename)
+        print('Load file', filename)
         try:
             if suffix == '.tif' or suffix == '.tiff':
                 self.image = imread(filename)
@@ -427,7 +525,8 @@ class VessQcWidget(QWidget):
         # Legacy code below (kept for tests)
         #
         # Search for the segPred file
-        self.stem2 = self.stem1[:-3] + '_segPred'   # Replace _IM by _segPred
+        base = self.stem1.removesuffix('_IM')
+        self.stem2 = base + '_segPred'
         filename = self.parent.joinpath(self.stem2)
 
         if filename.with_suffix('.tif').is_file():
@@ -448,7 +547,7 @@ class VessQcWidget(QWidget):
             return
 
         # Read the segPred file
-        print('Load', filename)
+        print('Load file', filename)
         try:
             if suffix == '.tif' or suffix == '.tiff':
                 self.segPred = imread(filename)
@@ -463,7 +562,7 @@ class VessQcWidget(QWidget):
         self.viewer.add_labels(self.segPred, name=self.stem2)
 
         # Search for the uncertainty file
-        self.stem3 = self.stem1[:-3] + '_uncertainty'
+        self.stem3 = base + '_uncertainty'
         filename = self.parent.joinpath(self.stem3)
 
         if filename.with_suffix('.tif').is_file():
@@ -484,7 +583,7 @@ class VessQcWidget(QWidget):
             return
 
         # Read the uncertainty file
-        print('Load', filename)
+        print('Load file', filename)
         try:
             if suffix == '.tif' or suffix == '.tiff':
                 self.uncertainty = imread(filename)
@@ -501,8 +600,8 @@ class VessQcWidget(QWidget):
         if self.segments == []:
             self.find_segments(self.uncertainty)
 
-    def show_uncertainty(self, uncertainty: np.ndarray):
-        """ Show an image layer with the uncertainty data """
+    def show_uncertainty(self):
+        """Show an image layer with the uncertainty data"""
 
         # (12.08.2025)
         if hasattr(self, 'uncertainty'):
@@ -511,16 +610,30 @@ class VessQcWidget(QWidget):
         else:
             QMessageBox.information(self, 'Note', 'Uncertainty is not defined')
 
-    def find_segments(self, uncertainty: np.ndarray):
-        """ Define segments that correspond to values of equal uncertainty """
+    def find_segments(self, uncertainty: np.ndarray, *, process_ui: bool = True):
+        """
+        Define segments that correspond to values of equal uncertainty
 
-        # (09.08.2024, revised on 03.07.2025, updated 07.10.2025)
+        Parameters
+        ----------
+        uncertainty : np.ndarray
+            3D array with uncertainty data
+        process_ui : bool
+            When False, skip QApplication.processEvents() (used during dataset
+            load to avoid brief empty top-level window flashes).
+        """
+
+        # (09.08.2024, revised 03.07.2025, 18.02.2026)
+        def _pump_events() -> None:
+            if process_ui:
+                QApplication.processEvents()
+
         t0 = time.time()                # UNIX timestamp
         print('The segmentation will take some time.')
         print('Processing uncertainty values...')
         
         # Process events to keep UI responsive
-        QApplication.processEvents()
+        _pump_events()
 
         # Find unique uncertainty values only where segPred > 0 (vessel regions)
         # This prevents segmenting the entire volume including background
@@ -537,7 +650,7 @@ class VessQcWidget(QWidget):
         structure = np.ones((3, 3, 3), dtype=int)   # Connectivity
 
         # Process events before heavy computation
-        QApplication.processEvents()
+        _pump_events()
         
         print('Running parallel segmentation (this may take a while)...')
         # Note: Parallel processing blocks, but is much faster than sequential
@@ -551,7 +664,7 @@ class VessQcWidget(QWidget):
         )
         
         print('Parallel processing complete, assembling results...')
-        QApplication.processEvents()
+        _pump_events()
 
         self.labels = np.zeros_like(uncertainty, dtype=int)
         uncert_values = {0: 0.0}    # Dictionary of all uncertanty values
@@ -575,13 +688,13 @@ class VessQcWidget(QWidget):
 
             # Process events periodically during result assembly
             if i % 10 == 0:
-                QApplication.processEvents()
+                _pump_events()
 
         print(f'Segmentation done in {time.time() - t0:.1f}s')
-        QApplication.processEvents()
+        _pump_events()
 
         print('Filtering small segments...')
-        QApplication.processEvents()
+        _pump_events()
 
         self.original_labels = None
         self.original_segments = None
@@ -599,7 +712,7 @@ class VessQcWidget(QWidget):
         mask = np.isin(self.labels, small_labels)
         self.labels[mask] = max_label
         
-        QApplication.processEvents()
+        _pump_events()
 
         # Create a structure for storing the data
         print('Creating segment metadata...')
@@ -619,36 +732,36 @@ class VessQcWidget(QWidget):
                     # Use actual max from original data, not rounded value
                     uncert_values[label_val] = float(np.max(segment_uncert))
 
-        self.segments = list()
+        self.segments: list[Segment] = []
         for label in unique_labels:
-            segment = dict(
-                name        = '',
-                label       = label,
-                uncertainty = uncert_values[label],
-                counts      = counts[label],
-                coords      = None,     # coordinates of cropped image
-                done        = False,
+            segment = Segment(
+                name='',
+                label=int(label),
+                uncertainty=float(uncert_values[label]),
+                count=int(counts[label]),
+                coords=None,     # coordinates of cropped image
+                done=False,
             )
             self.segments.append(segment)
 
         self._sort_segments()
         print(f'Created {len(self.segments)} segments')
         
-        QApplication.processEvents()
+        _pump_events()
 
         # Determine the names of the segments
         for i, segment in enumerate(self.segments, start=1):
             # Check if this is the "Noise" collection (highest label)
-            if segment['label'] == max_label:
-                segment['name'] = "Noise"
+            if segment.label == max_label:
+                segment.name = "Noise"
             else:
                 # Use actual label ID for segment name
-                segment['name'] = f"Segment_{segment['label']}"
+                segment.name = f"Segment_{segment.label}"
         
         # Debug: Print first few segment names to verify
         print(f"DEBUG: First 5 segment names after assignment:")
         for seg in self.segments[:5]:
-            print(f"  {seg['name']} (label: {seg['label']})")
+            print(f"  {seg.name} (label: {seg.label})")
         
         # Baseline after noise floor: spinbox merges segments smaller than its value into Noise
         self.original_labels = self.labels.copy()
@@ -658,7 +771,7 @@ class VessQcWidget(QWidget):
         )
 
         # Process events to keep UI responsive
-        QApplication.processEvents()
+        _pump_events()
 
         # Display the segments in an label layer
         print('Adding segmentation layer to viewer...')
@@ -673,7 +786,7 @@ class VessQcWidget(QWidget):
     def _is_small_segment(self, segment):
         """Check if a segment is the Noise collection"""
         small_label = getattr(self, '_small_segments_label', None)
-        if small_label is not None and segment.get('label') == small_label:
+        if small_label is not None and segment_label(segment) == small_label:
             return True
         return False
 
@@ -695,7 +808,7 @@ class VessQcWidget(QWidget):
         grid_layout.setColumnMinimumWidth(3, 80)
 
     def show_popup_window(self):
-        """ Define a pop-up window for the uncertainty list """
+        """Define a pop-up window for the uncertainty list"""
 
         # (24.05.2024)
         self.popup_window = QWidget()
@@ -718,14 +831,14 @@ class VessQcWidget(QWidget):
 
         grid_layout.addWidget(QLabel('Segment'), 0, 0)
         grid_layout.addWidget(QLabel('Uncertainty'), 0, 1)
-        grid_layout.addWidget(QLabel('Counts'), 0, 2)
+        grid_layout.addWidget(QLabel('Count'), 0, 2)
         grid_layout.addWidget(QLabel('done'), 0, 3)
 
         # Separate regular segments from the Noise collection (already priority-sorted)
         regular_segments = [
-            s for s in self.segments if not self._is_small_segment(s) and not s['done']
+            s for s in self.segments if not self._is_small_segment(s) and not segment_done(s)
         ]
-        small_segments = [s for s in self.segments if self._is_small_segment(s) and not s['done']]
+        small_segments = [s for s in self.segments if self._is_small_segment(s) and not segment_done(s)]
         
         # Track the highlighted button to scroll to it later
         highlighted_button = None
@@ -734,14 +847,14 @@ class VessQcWidget(QWidget):
         idx = 1
         for segment in regular_segments:
             button = self.new_entry(segment, grid_layout, idx)
-            if button and self.current_zoomed_segment and segment.get('label') == self.current_zoomed_segment.get('label'):
+            if button and self.current_zoomed_segment and segment_label(segment) == segment_label(self.current_zoomed_segment):
                 highlighted_button = button
             idx += 1
         
         # Display small segments at the end
         for segment in small_segments:
             button = self.new_entry(segment, grid_layout, idx)
-            if button and self.current_zoomed_segment and segment.get('label') == self.current_zoomed_segment.get('label'):
+            if button and self.current_zoomed_segment and segment_label(segment) == segment_label(self.current_zoomed_segment):
                 highlighted_button = button
             idx += 1
 
@@ -755,7 +868,7 @@ class VessQcWidget(QWidget):
 
         # The treated areas are shown in the lower part of the group box
         treated_segments = sorted(
-            [s for s in self.segments if s['done']],
+            [s for s in self.segments if segment_done(s)],
             key=segment_sort_key,
         )
         
@@ -819,9 +932,9 @@ class VessQcWidget(QWidget):
         
         # Separate regular segments from the Noise collection (already priority-sorted)
         regular_segments = [
-            s for s in self.segments if not self._is_small_segment(s) and not s['done']
+            s for s in self.segments if not self._is_small_segment(s) and not segment_done(s)
         ]
-        small_segments = [s for s in self.segments if self._is_small_segment(s) and not s['done']]
+        small_segments = [s for s in self.segments if self._is_small_segment(s) and not segment_done(s)]
         
         # Track the highlighted button to scroll to it later
         highlighted_button = None
@@ -830,14 +943,14 @@ class VessQcWidget(QWidget):
         idx = 1
         for segment in regular_segments:
             button = self.new_entry(segment, grid_layout, idx)
-            if button and self.current_zoomed_segment and segment.get('label') == self.current_zoomed_segment.get('label'):
+            if button and self.current_zoomed_segment and segment_label(segment) == segment_label(self.current_zoomed_segment):
                 highlighted_button = button
             idx += 1
         
         # Display small segments at the end
         for segment in small_segments:
             button = self.new_entry(segment, grid_layout, idx)
-            if button and self.current_zoomed_segment and segment.get('label') == self.current_zoomed_segment.get('label'):
+            if button and self.current_zoomed_segment and segment_label(segment) == segment_label(self.current_zoomed_segment):
                 highlighted_button = button
             idx += 1
         
@@ -851,7 +964,7 @@ class VessQcWidget(QWidget):
         
         # The treated areas are shown in the lower part of the group box
         treated_segments = sorted(
-            [s for s in self.segments if s['done']],
+            [s for s in self.segments if segment_done(s)],
             key=segment_sort_key,
         )
         
@@ -872,15 +985,14 @@ class VessQcWidget(QWidget):
             # Use QTimer to ensure the layout is fully updated before scrolling
             QTimer.singleShot(0, lambda: scroll_area.ensureWidgetVisible(highlighted_button))
         
-    def new_entry(self, segment: dict, grid_layout: QGridLayout, idx: int):
+    def new_entry(self, segment: Segment, grid_layout: QGridLayout, idx: int):
         """
         New entry for 'Area n' in the grid layout
 
         Parameters
         ----------
-        segment : dict
-            'name', 'uncertainty', 'counts', 'com', and 'done'
-            for a specific area
+        segment : Segment
+            Metadata of the selected segment
         grid_layout : QGridLayout
             Layout for a QGroupBox
         idx : int
@@ -894,29 +1006,29 @@ class VessQcWidget(QWidget):
 
         # (13.08.2024, updated 07.10.2025)
         # Define some buttons and labels
-        button1 = QPushButton(segment['name'])
+        button1 = QPushButton(segment_name(segment))
         button1.clicked.connect(lambda: self.zoom_in(segment, 0.75))
 
-        if segment['done']:
+        if segment_done(segment):
             # disable button1 for treated areas
             button1.setEnabled(False)
         
         # Highlight if this is the currently zoomed segment
-        if (self.current_zoomed_segment is not None and 
-            segment.get('label') == self.current_zoomed_segment.get('label')):
+        if (self.current_zoomed_segment is not None and
+            segment_label(segment) == segment_label(self.current_zoomed_segment)):
             button1.setStyleSheet('background-color: lightblue; font-weight: bold;')
         
         grid_layout.addWidget(button1, idx, 0)
 
-        uncertainty = '%.3f' % (segment['uncertainty'])
+        uncertainty = '%.3f' % segment_uncertainty(segment)
         label1 = QLabel(uncertainty)
         grid_layout.addWidget(label1, idx, 1)
 
-        counts = '%d' % (segment['counts'])
-        label2 = QLabel(counts)
+        count = '%d' % segment_count(segment)
+        label2 = QLabel(count)
         grid_layout.addWidget(label2, idx, 2)
 
-        if segment['done']:
+        if segment_done(segment):
             button3 = QPushButton('re-enable')
             button3.clicked.connect(lambda: self.re_enable(segment))
         else:
@@ -926,9 +1038,57 @@ class VessQcWidget(QWidget):
         
         return button1
 
-    def zoom_in(self, segment: dict, margin_factor: float):
+    def _compute_segment_coords(
+        self, segment: Segment, margin_factor: float = 0.75
+    ) -> Optional[list]:
         """
-        Show a segment and its immediate surroundings in a 3D view.
+        Bounding box for a segment in ``self.labels``, with margin (same as zoom_in).
+
+        Returns None if labels are missing or the segment has no voxels.
+        """
+        if not hasattr(self, 'labels') or self.labels is None:
+            return None
+
+        label = segment_label(segment)
+        mask = self.labels == label
+        if not np.any(mask):
+            return None
+
+        coords = np.argwhere(mask)
+        minz, miny, minx = coords.min(axis=0)
+        maxz, maxy, maxx = coords.max(axis=0)
+
+        sz, sy, sx = maxz - minz + 1, maxy - miny + 1, maxx - minx + 1
+        size = max(sx, sy, sz)
+
+        base_margin = int(size * margin_factor / 2)
+        min_margin = 30
+        margin = max(min_margin, base_margin)
+
+        if hasattr(self, 'image') and self.image is not None:
+            shape = self.image.shape
+        else:
+            shape = self.labels.shape
+
+        startz = max(int(minz) - margin, 0)
+        starty = max(int(miny) - margin, 0)
+        startx = max(int(minx) - margin, 0)
+        endz = min(int(maxz) + margin + 1, shape[0])
+        endy = min(int(maxy) + margin + 1, shape[1])
+        endx = min(int(maxx) + margin + 1, shape[2])
+
+        return [[startz, starty, startx], [endz, endy, endx]]
+
+    def zoom_in(self, segment: Segment, margin_factor: float):
+        """
+        Show a segment and its surroundings in a 3D view
+
+        Parameters
+        ----------
+        segment : Segment
+            Metadata of the selected segment
+        margin_factor : float
+            Factor for enlarging the b_box
         """
 
         # (25.06.2025, updated 07.10.2025)
@@ -936,46 +1096,25 @@ class VessQcWidget(QWidget):
         self.current_zoomed_segment = segment
         
         # Update segment count before zooming
-        label = segment['label']
+        label = segment_label(segment)
         count = int(np.sum(self.labels == label))  # Convert to Python int
-        segment['counts'] = count
-        print(f"DEBUG: Updated count for {segment['name']}: {count}")
+        set_segment_count(segment, count)
+        print(f"DEBUG: Updated count for {segment_name(segment)}: {count}")
         
         # Save current image layer settings
         self._save_image_layer_settings()
         
         self.viewer.layers.clear()          # Delete all layers in Napari
 
-        # Determine the segment to be displayed
-        label = segment['label']            # target label
-        mask  = (self.labels == label)      # Segment mask
+        label = segment_label(segment)
+        bbox = self._compute_segment_coords(segment, margin_factor)
+        if bbox is None:
+            print(f"DEBUG: Cannot zoom to {segment_name(segment)}: no voxels for label {label}")
+            return
 
-        # Calculate bounding box
-        coords = np.argwhere(mask)
-        minz, miny, minx = coords.min(axis=0)
-        maxz, maxy, maxx = coords.max(axis=0)
-
-        # Enlarge box
-        sz, sy, sx = maxz - minz + 1, maxy - miny + 1, maxx - minx + 1
-        size = max(sx, sy, sz)
-        
-        # Adaptive margin: more context for smaller segments
-        # Minimum margin of 30, scales up to proportional margin for larger segments
-        base_margin = int(size * margin_factor / 2)
-        min_margin = 30
-        margin = max(min_margin, base_margin)
-
-        # Limitation to the image
-        shape = self.image.shape
-        startz = max(minz - margin, 0)
-        starty = max(miny - margin, 0)
-        startx = max(minx - margin, 0)
-        endz   = min(maxz + margin + 1, shape[0])
-        endy   = min(maxy + margin + 1, shape[1])
-        endx   = min(maxx + margin + 1, shape[2])
-
-        # Save the coordinates of the cropped image
-        segment['coords'] = [[startz, starty, startx], [endz, endy, endx]]
+        set_segment_coords(segment, bbox)
+        startz, starty, startx = bbox[0]
+        endz, endy, endx = bbox[1]
 
         # Cropping
         cropped_image = self.image[startz:endz, starty:endy, startx:endx]
@@ -999,7 +1138,7 @@ class VessQcWidget(QWidget):
         # Display data in Napari
         name1 = 'Cropped ' + self.stem1
         name2 = 'Cropped ' + self.stem2
-        name3 = segment['name']
+        name3 = segment_name(segment)
         image_layer = self.viewer.add_image(cropped_image, name=name1)
         
         # Apply saved image layer settings
@@ -1045,24 +1184,29 @@ class VessQcWidget(QWidget):
         if self.popup_window and self.popup_window.isVisible():
             self._update_popup_window_content()
 
-    def done(self, segment: dict):
+    def done(self, segment: Segment):
         """
         Transfer data from the segment to the labels, segPred and uncertainty
-        layer and close the layers for the cropped images
+        layer and close the layers for the cropped images.
+
+        Parameters
+        ----------
+        segment : Segment
+            Metadata of the selected segment
         """
 
         # (18.07.2024, updated 07.10.2025)
         self.compare_and_transfer(segment)  # transfer of data
-        segment['done'] = True              # mark this area as treated
+        set_segment_done(segment, True)              # mark this area as treated
         
         # Clear current zoomed segment since we're going back to overview
         self.current_zoomed_segment = None
         
         # Update segment count
-        label = segment['label']
+        label = segment_label(segment)
         count = int(np.sum(self.labels == label))  # Convert to Python int
-        segment['counts'] = count
-        print(f"DEBUG: Updated count for {segment['name']}: {count}")
+        set_segment_count(segment, count)
+        print(f"DEBUG: Updated count for {segment_name(segment)}: {count}")
 
         # Save current image layer settings
         self._save_image_layer_settings()
@@ -1088,11 +1232,11 @@ class VessQcWidget(QWidget):
         # Update top 5 panel after marking segment as done
         self._update_top5_panel()
 
-    def re_enable(self, segment: dict):
+    def re_enable(self, segment: Segment):
         """ Re-enable the data of a specific area in the pop-up window """
 
         # (19.07.2024)
-        segment['done'] = False
+        set_segment_done(segment, False)
         
         # Update popup window content instead of recreating
         if self.popup_window and self.popup_window.isVisible():
@@ -1103,26 +1247,36 @@ class VessQcWidget(QWidget):
         # Update top 5 panel after restoring segment
         self._update_top5_panel()
 
-    def compare_and_transfer(self, segment: dict):
+    def compare_and_transfer(self, segment: Segment):
         """
         Compare old and new data and transfer the changes to the segPred,
-        uncertainty and labels data
+        uncertainty and labels data.
 
         Parameters
         ----------
-        segment : dict
-            Data of the segment
+        segment : Segment
+            Metadata of the selected segment
         """
 
         # (09.08.2024)
-        name        = segment['name']
-        label       = segment['label']
-        uncertainty = segment['uncertainty']
-        coords      = segment['coords']
+        name = segment_name(segment)
+        label = segment_label(segment)
+        uncertainty = segment_uncertainty(segment)
 
         # If a label layer with this name exists:
         if any(layer.name == name and isinstance(layer, napari.layers.Labels)
             for layer in self.viewer.layers):
+
+            coords = segment_coords(segment)
+            if coords is None:
+                coords = self._compute_segment_coords(segment)
+                if coords is None:
+                    print(
+                        f"DEBUG: Skipping transfer for {name}: "
+                        f"no coords and no voxels for label {label}"
+                    )
+                    return
+                set_segment_coords(segment, coords)
 
             # Data of the segment
             layer = self.viewer.layers[name]
@@ -1161,7 +1315,7 @@ class VessQcWidget(QWidget):
 
     def save_intermediate_data(self):
         """
-        Save the segPred, uncertainty and labels data to files on hard drive.
+        Save the segPred, uncertainty and labels data to files on hard drive
         """
 
         # (26.07.2024, updated 07.10.2025)
@@ -1213,7 +1367,7 @@ class VessQcWidget(QWidget):
                 clean_segments = []
                 for seg in self.segments:
                     # Clean coords - convert numpy arrays/scalars to lists of Python ints
-                    coords_value = seg.get('coords')
+                    coords_value = seg.coords
                     if coords_value is not None:
                         try:
                             # Handle nested structures and numpy types
@@ -1221,11 +1375,11 @@ class VessQcWidget(QWidget):
                         except (TypeError, ValueError):
                             # If conversion fails, set to None
                             coords_value = None
-                            print(f"Warning: Could not convert coords for segment {seg.get('label')}, setting to None")
+                            print(f"Warning: Could not convert coords for segment {seg.label}, setting to None")
                     
                     # Determine default name based on label
-                    uncertainty = float(seg.get('uncertainty', 0.0))
-                    label_value = int(seg.get('label', 0))
+                    uncertainty = float(seg.uncertainty)
+                    label_value = int(seg.label)
                     
                     # Check if this is the Noise segment (by label, not uncertainty)
                     if self._small_segments_label and label_value == self._small_segments_label:
@@ -1236,14 +1390,14 @@ class VessQcWidget(QWidget):
                     clean_seg = {
                         'label': label_value,
                         'uncertainty': uncertainty,
-                        'counts': int(seg.get('counts', 0)),  # Ensure int conversion
+                        'count': int(seg.count),
                         'coords': coords_value,  # Now clean
-                        'done': bool(seg.get('done', False))
+                        'done': bool(seg.done)
                     }
                     
                     # Only store custom_name if it differs from the default
-                    if seg.get('name') and seg['name'] != default_name:
-                        clean_seg['custom_name'] = str(seg['name'])
+                    if seg.name and seg.name != default_name:
+                        clean_seg['custom_name'] = str(seg.name)
                     
                     clean_segments.append(clean_seg)
                 
@@ -1311,17 +1465,19 @@ class VessQcWidget(QWidget):
             return
         
         # 1st: Close any open segment layers and transfer changes
-        lst = [layer for layer in self.viewer.layers
+        segment_layers = [layer for layer in self.viewer.layers
             if (layer.name.startswith('Segment_') or layer.name == 'Noise') and
             isinstance(layer, napari.layers.Labels)]
 
-        for layer in lst:
+        for layer in segment_layers:
             name = layer.name
             print(f'Closing layer: {name}')
-            segment = next((s for s in self.segments if s['name'] == name), None)
+            segment = next(
+                (s for s in self.segments if segment_name(s) == name), None
+            )
             if segment is not None:
                 self.compare_and_transfer(segment)
-                segment['done'] = True
+                set_segment_done(segment, True)
 
         # 2nd: Create done subdirectory
         done_dir = self.parent / 'done'
@@ -1451,8 +1607,15 @@ class VessQcWidget(QWidget):
                               f'Final results saved to done/ subdirectory.\n' +
                               f'Original files and cache removed from data directory.')
 
-    def checkbox_save_uncertainty(self, state: Qt.Checked):
-        """ Toggle the bool variable save_uncertainty """
+    def checkbox_save_uncertainty(self, state: int):
+        """
+        Toggle the bool variable save_uncertainty
+
+        Parameters
+        ----------
+        state : int
+            Qt.Checked or Qt.Unchecked
+        """
 
         if state == Qt.Checked:
             self.save_uncertainty = True
@@ -1460,7 +1623,7 @@ class VessQcWidget(QWidget):
             self.save_uncertainty = False
 
     def show_info(self):
-        """ Show information about the current layer """
+        """Show information about the current layer"""
 
         # (25.07.2024)
         layer = self.viewer.layers.selection.active
@@ -1489,6 +1652,13 @@ class VessQcWidget(QWidget):
                 self.load_dataset_from_triplet(triplet)
         
         self.loading_dialog = None
+
+    def _finish_dataset_load_ui(self) -> None:
+        """Show auxiliary viewers and re-enable cross extent updates after load."""
+        if hasattr(self, 'cross'):
+            self.cross.set_dataset_load_in_progress(False)
+        if hasattr(self, 'dock_widget'):
+            self.dock_widget.end_dataset_load()
     
     def load_dataset_from_triplet(self, triplet: DatasetTriplet):
         """Load a dataset from a DatasetTriplet"""
@@ -1508,7 +1678,16 @@ class VessQcWidget(QWidget):
             
             self.current_triplet = triplet
             raw_file, segpred_file, uncertainty_file = self.data_manager.get_files_for_loading(triplet)
-            
+
+            cross_restore = (
+                hasattr(self, 'cross') and self.cross.isChecked()
+            )
+            if hasattr(self, 'cross'):
+                self.cross.detach_from_viewer(block_updates=True)
+                self.cross.set_dataset_load_in_progress(True)
+            if hasattr(self, 'dock_widget'):
+                self.dock_widget.begin_dataset_load()
+
             # Load raw image
             self.parent = raw_file.parent
             self.stem1 = raw_file.stem
@@ -1572,8 +1751,6 @@ class VessQcWidget(QWidget):
                 self.uncertainty = sitk.GetArrayFromImage(sitk_image)
             
             # Process segments - use precomputed if available
-            QApplication.processEvents()
-            
             if triplet.has_segmentation and triplet.segmentation_dir:
                 print(f"DEBUG: Loading precomputed segmentation for {triplet.base_name}")
                 # Load precomputed labels
@@ -1585,31 +1762,17 @@ class VessQcWidget(QWidget):
                     # Load precomputed segments
                     segments_file = triplet.segmentation_dir / f"{triplet.base_name}_segments.json"
                     if segments_file.exists():
-                        with segments_file.open('r', encoding='utf-8') as f:
-                            self.segments = json.load(f)
+                        self.segments = load_segments(segments_file)
                         print(f"DEBUG:   Loaded {len(self.segments)} segments from {segments_file.name}")
-                        
-                        # Synthesize names from labels (name field no longer stored in JSON)
-                        # Find max label to identify Noise segment
-                        max_label = max(seg.get('label', 0) for seg in self.segments)
+
+                        # Identify Noise segment by max label.
+                        max_label = max(seg.label for seg in self.segments)
                         self._small_segments_label = max_label  # Store for later reference
-                        
-                        for seg in self.segments:
-                            # Check if there's a custom name
-                            if 'custom_name' in seg:
-                                seg['name'] = seg['custom_name']
-                            else:
-                                # Synthesize default name
-                                # Check if this is the Noise segment (by label, not uncertainty)
-                                if seg.get('label') == max_label:
-                                    seg['name'] = 'Noise'
-                                else:
-                                    seg['name'] = f"Segment_{seg['label']}"
 
                         self.original_labels = self.labels.copy()
                         self._original_noise_label = max_label
                         self.original_segments = copy.deepcopy(
-                            [s for s in self.segments if s.get('label') != max_label]
+                            [s for s in self.segments if s.label != max_label]
                         )
                         
                         # Display the segmentation layer
@@ -1619,23 +1782,35 @@ class VessQcWidget(QWidget):
                     else:
                         # Fallback to calculation
                         print(f"DEBUG:   Segments file not found, calculating...")
-                        self.find_segments(self.uncertainty)
+                        self.find_segments(self.uncertainty, process_ui=False)
                         print(f"✓ Loaded dataset: {triplet.base_name}")
                 else:
                     # Fallback to calculation
                     print(f"DEBUG:   Labels file not found, calculating...")
-                    self.find_segments(self.uncertainty)
+                    self.find_segments(self.uncertainty, process_ui=False)
                     print(f"✓ Loaded dataset: {triplet.base_name}")
             else:
                 # No precomputed segmentation, calculate
                 print(f"DEBUG: No precomputed segmentation, calculating for {triplet.base_name}")
-                self.find_segments(self.uncertainty)
+                self.find_segments(self.uncertainty, process_ui=False)
                 print(f"✓ Loaded dataset: {triplet.base_name}")
             
             # Update top 5 panel after loading
             self._update_top5_panel()
+
+            if hasattr(self, 'cross'):
+                self.cross.attach_after_dataset_load(
+                    visible=cross_restore,
+                    on_complete=self._finish_dataset_load_ui,
+                )
+            else:
+                self._finish_dataset_load_ui()
             
         except Exception as error:
+            if hasattr(self, 'cross'):
+                self.cross._layer_updates_blocked = False
+                self.cross.set_dataset_load_in_progress(False)
+            self._finish_dataset_load_ui()
             QMessageBox.warning(self, 'Error loading dataset', str(error))
     
     def _on_threshold_changed(self, value: int):
@@ -1663,13 +1838,13 @@ class VessQcWidget(QWidget):
         if self.original_labels is None:
             self.original_labels = self.labels.copy()
             if self._original_noise_label is None:
-                noise = [s for s in self.segments if s.get('name') == 'Noise']
+                noise = [s for s in self.segments if segment_name(s) == 'Noise']
                 if noise:
-                    self._original_noise_label = noise[0]['label']
+                    self._original_noise_label = segment_label(noise[0])
             noise_label = self._original_noise_label
             self.original_segments = copy.deepcopy([
                 s for s in self.segments
-                if s.get('label') != noise_label and s.get('name') != 'Noise'
+                if segment_label(s) != noise_label and segment_name(s) != 'Noise'
             ])
 
         self.labels = self.original_labels.copy()
@@ -1698,18 +1873,18 @@ class VessQcWidget(QWidget):
 
         filtered_segments = []
         for segment in self.segments:
-            label = segment['label']
+            label = segment_label(segment)
             if label in unique_labels:
                 if label < len(counts):
-                    segment['counts'] = int(counts[label])
+                    set_segment_count(segment, int(counts[label]))
                     filtered_segments.append(segment)
 
         if max_label in unique_labels and max_label < len(counts):
-            filtered_segments.append(dict(
+            filtered_segments.append(Segment(
                 name='Noise',
                 label=max_label,
                 uncertainty=0.9999,
-                counts=int(counts[max_label]),
+                count=int(counts[max_label]),
                 coords=None,
                 done=False,
             ))
@@ -1719,8 +1894,8 @@ class VessQcWidget(QWidget):
         self._sort_segments()
 
         for segment in self.segments:
-            if segment['name'] == '':
-                segment['name'] = f'Segment_{segment["label"]}'
+            if segment_name(segment) == '':
+                set_segment_name(segment, f'Segment_{segment_label(segment)}')
 
         if 'Segmentation' in self.viewer.layers:
             self.viewer.layers['Segmentation'].data = self.labels
@@ -1791,30 +1966,25 @@ class VessQcWidget(QWidget):
         while layout.count():
             items_to_remove.append(layout.takeAt(0))
         
-        # Delete widgets and nested layouts
+        # Delete widgets and nested layouts (do not setParent(None): that promotes
+        # widgets to top-level windows and caused brief flashes on dataset load).
         for item in items_to_remove:
             if item.widget():
-                widget = item.widget()
-                widget.setParent(None)
-                widget.deleteLater()
+                item.widget().deleteLater()
             elif item.layout():
-                # Clear nested layout
                 sublayout = item.layout()
                 while sublayout.count():
                     subitem = sublayout.takeAt(0)
                     if subitem.widget():
-                        subwidget = subitem.widget()
-                        subwidget.setParent(None)
-                        subwidget.deleteLater()
+                        subitem.widget().deleteLater()
                 sublayout.deleteLater()
-        
-        # Process events to ensure widgets are removed before adding new ones
-        QApplication.processEvents()
+
+        # QApplication.processEvents()  # disabled: forced paint of orphaned widgets
         
         # Get top 5 undone segments (excluding Noise)
         undone_segments = [
             s for s in self.segments
-            if not s['done'] and not self._is_small_segment(s)
+            if not segment_done(s) and not self._is_small_segment(s)
         ]
         top5 = sorted(undone_segments, key=segment_sort_key)[:5]
         
@@ -1862,8 +2032,8 @@ class VessQcWidget(QWidget):
             self.viewer.layers.selection.active = neighbors_layer
         else:
             # Focus back on current segment when hidden
-            if self.current_zoomed_segment and self.current_zoomed_segment['name'] in self.viewer.layers:
-                self.viewer.layers.selection.active = self.viewer.layers[self.current_zoomed_segment['name']]
+            if self.current_zoomed_segment and segment_name(self.current_zoomed_segment) in self.viewer.layers:
+                self.viewer.layers.selection.active = self.viewer.layers[segment_name(self.current_zoomed_segment)]
     
     def _toggle_identify_mode(self, checked):
         """Toggle identify mode on/off"""
@@ -1912,26 +2082,26 @@ class VessQcWidget(QWidget):
             return
         
         # Get segment label at clicked position
-        segment_label = int(layer.data[z, y, x])
+        clicked_label = int(layer.data[z, y, x])
         
-        if segment_label == 0:
+        if clicked_label == 0:
             return  # Clicked on background
         
         # Find segment
-        segment = next((s for s in self.segments if s['label'] == segment_label), None)
+        segment = next((s for s in self.segments if segment_label(s) == clicked_label), None)
         if segment is None:
             return
         
         # Show dialog with jump option
         msg = QMessageBox(self)
         msg.setWindowTitle('Segment Identified')
-        msg.setText(f"Segment: {segment['name']}\n"
-                   f"Label: {segment_label}\n"
-                   f"Uncertainty: {segment['uncertainty']:.4f}\n"
-                   f"Voxel count: {segment['counts']}\n"
-                   f"Status: {'Done' if segment['done'] else 'Not done'}")
+        msg.setText(f"Segment: {segment_name(segment)}\n"
+                   f"Label: {clicked_label}\n"
+                   f"Uncertainty: {segment_uncertainty(segment):.4f}\n"
+                   f"Voxel count: {segment_count(segment)}\n"
+                   f"Status: {'Done' if segment_done(segment) else 'Not done'}")
         
-        if not segment['done']:
+        if not segment_done(segment):
             jump_button = msg.addButton('Jump to Segment', QMessageBox.AcceptRole)
             msg.addButton('Cancel', QMessageBox.RejectRole)
             msg.exec_()

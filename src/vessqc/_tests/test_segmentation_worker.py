@@ -136,7 +136,7 @@ def test_json_serialization_no_numpy_arrays(temp_output_dir, sample_uncertainty,
         for segment in data:
             assert isinstance(segment['label'], int)
             assert isinstance(segment['uncertainty'], float)
-            assert isinstance(segment['counts'], int)
+            assert isinstance(segment['count'], int)
             assert isinstance(segment['done'], bool)
             # 'name' field is no longer stored (we store 'custom_name' only if it differs)
             if 'custom_name' in segment:
@@ -234,9 +234,9 @@ def test_calculate_segmentation_filters_small(sample_uncertainty, sample_segpred
     labels, segments = worker._calculate_segmentation(small_uncertainty, small_segpred)
     
     # Small region (8 voxels) should be merged into Noise
-    noise_seg = [s for s in segments if s['name'] == 'Noise']
+    noise_seg = [s for s in segments if s.name == 'Noise']
     assert len(noise_seg) == 1
-    assert noise_seg[0]['uncertainty'] == 0.9999
+    assert noise_seg[0].uncertainty == 0.9999
 
 
 @pytest.mark.worker

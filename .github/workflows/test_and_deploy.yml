@@ -12,14 +12,14 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ['3.9', '3.10', '3.11', '3.12']
+        python-version: ['3.10', '3.11', '3.12']
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -39,15 +39,18 @@ jobs:
           python -m pip install setuptools tox tox-gh-actions
 
       # this runs the platform-specific tests declared in tox.ini
-      - name: Test with tox
-        uses: aganders3/headless-gui@v1
-        with:
-          run: python -m tox
+      - name: Test with tox (Linux Xvfb)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a python -m tox
         env:
-          PLATFORM: ${{ matrix.platform }}
+          QT_QPA_PLATFORM: offscreen
+
+      - name: Test with tox (Windows/macOS)
+        if: runner.os != 'Linux'
+        run: python -m tox
 
       - name: Upload coverage to Coverage
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v5
 
   build:
     name: Build distribution
@@ -57,9 +60,9 @@ jobs:
 
     steps:
     - name: Check out repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: "3.x"
         

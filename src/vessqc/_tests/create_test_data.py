@@ -55,7 +55,7 @@ segments_with_done = [
         "name": "Segment_1",
         "label": 1,
         "uncertainty": 0.9,
-        "counts": 150,
+        "count": 150,
         "coords": None,
         "done": True
     },
@@ -63,7 +63,7 @@ segments_with_done = [
         "name": "Segment_2",
         "label": 2,
         "uncertainty": 0.8,
-        "counts": 120,
+        "count": 120,
         "coords": None,
         "done": False
     },
@@ -71,15 +71,15 @@ segments_with_done = [
         "name": "Segment_3",
         "label": 3,
         "uncertainty": 0.7,
-        "counts": 100,
+        "count": 100,
         "coords": None,
         "done": False
     },
     {
-        "name": "Small_Segments",
+        "name": "Noise",
         "label": 99,
         "uncertainty": 0.9999,
-        "counts": 20,
+        "count": 20,
         "coords": None,
         "done": False
     }

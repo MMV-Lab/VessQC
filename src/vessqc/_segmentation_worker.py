@@ -27,6 +27,7 @@ from joblib import Parallel, delayed
 import time
 
 from ._constants import NOISE_MIN_SIZE, segment_sort_key
+from .models import Segment
 
 
 class NumpyEncoder(json.JSONEncoder):
@@ -430,16 +431,16 @@ class SegmentationWorker:
                     # Use actual max from original data, not rounded value
                     uncert_values[label_val] = float(np.max(segment_uncert))
         
-        segments = []
+        segments: List[Segment] = []
         for label in unique_labels:
-            segment = {
-                'name': '',
-                'label': int(label),
-                'uncertainty': float(uncert_values[label]),
-                'counts': int(counts[label]),
-                'coords': None,
-                'done': False,
-            }
+            segment = Segment(
+                name='',
+                label=int(label),
+                uncertainty=float(uncert_values[label]),
+                count=int(counts[label]),
+                coords=None,
+                done=False,
+            )
             segments.append(segment)
         
         # Sort by uncertainty
@@ -447,21 +448,21 @@ class SegmentationWorker:
         
         # Assign names using label IDs
         for i, segment in enumerate(segments, start=1):
-            if segment['label'] == max_label:
-                segment['name'] = "Noise"
+            if segment.label == max_label:
+                segment.name = "Noise"
             else:
-                segment['name'] = f"Segment_{segment['label']}"
+                segment.name = f"Segment_{segment.label}"
         
         print(f"DEBUG: Created {len(segments)} segments")
         if len(segments) > 0:
-            uncertainties = [s['uncertainty'] for s in segments if s['name'] != 'Noise']
+            uncertainties = [s.uncertainty for s in segments if s.name != 'Noise']
             if uncertainties:
                 print(f"DEBUG: Uncertainty range in segments: {min(uncertainties):.4f} to {max(uncertainties):.4f}")
         
         return labels, segments
     
-    def _save_results(self, dataset_name: str, labels: np.ndarray, 
-                     segments: List[Dict], output_dir: Path):
+    def _save_results(self, dataset_name: str, labels: np.ndarray,
+                     segments: List[Segment], output_dir: Path):
         """
         Save segmentation results to disk
         
@@ -471,7 +472,7 @@ class SegmentationWorker:
             Name of the dataset
         labels : np.ndarray
             Label array
-        segments : List[Dict]
+        segments : List[Segment]
             Segment metadata
         output_dir : Path
             Directory to save results
@@ -490,29 +491,26 @@ class SegmentationWorker:
         clean_segments = []
         for seg in segments:
             # Clean coords - convert numpy arrays to lists
-            coords_value = seg.get('coords')
+            coords_value = seg.coords
             if coords_value is not None:
                 # Convert [[np.int64, ...], [...]] to [[int, ...], [...]]
                 coords_value = [[int(c) for c in coord] for coord in coords_value]
             
             # Determine default name based on label
-            uncertainty = float(seg['uncertainty'])
-            if uncertainty >= 0.999:
-                default_name = 'Small_Segments'
-            else:
-                default_name = f"Segment_{int(seg['label'])}"
+            uncertainty = float(seg.uncertainty)
+            default_name = 'Noise' if seg.name == 'Noise' else f"Segment_{int(seg.label)}"
             
             clean_seg = {
-                'label': int(seg['label']),
+                'label': int(seg.label),
                 'uncertainty': uncertainty,
-                'counts': int(seg['counts']),
+                'count': int(seg.count),
                 'coords': coords_value,  # Now clean
-                'done': bool(seg.get('done', False))
+                'done': bool(seg.done)
             }
             
             # Only store custom_name if it differs from the default
-            if seg.get('name') and seg['name'] != default_name:
-                clean_seg['custom_name'] = str(seg['name'])
+            if seg.name and seg.name != default_name:
+                clean_seg['custom_name'] = str(seg.name)
             
             clean_segments.append(clean_seg)
         

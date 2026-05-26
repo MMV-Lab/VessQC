@@ -29,7 +29,13 @@ from ._constants import (
     DATASET_SORT_MAX,
     DATASET_SORT_MEAN,
     DISPLAY_MIN_SIZE_DEFAULT,
+    segment_count,
+    segment_done,
+    segment_label,
+    segment_name,
+    segment_uncertainty,
 )
+from .io_utils import load_segments
 
 # Setup logging
 log_file = Path.home() / '.vessqc_debug.log'
@@ -683,17 +689,16 @@ class DataManager:
                 print(f"DEBUG:   Segments file not found: {segments_file}")
                 return float('inf')
             
-            with segments_file.open('r', encoding='utf-8') as f:
-                segments = json.load(f)
+            segments = load_segments(segments_file)
             
             print(f"DEBUG:   Loaded {len(segments)} segments from JSON")
             
             # Count done vs undone
-            done_count = sum(1 for s in segments if s.get('done', False))
+            done_count = sum(1 for s in segments if segment_done(s))
             print(f"DEBUG:   Segments status: {done_count} done, {len(segments) - done_count} undone")
             
             # Find max label to identify Noise segment
-            max_label = max(s['label'] for s in segments) if segments else 0
+            max_label = max(segment_label(s) for s in segments) if segments else 0
             print(f"DEBUG:   Max label (Noise): {max_label}")
             
             # Create segment priorities from cached data (no need to load large files!)
@@ -705,32 +710,25 @@ class DataManager:
             voxel_count_at_max = 0
             
             for segment in segments:
-                label = segment['label']
-                uncertainty_value = segment.get('uncertainty', 0.0)
+                label = segment_label(segment)
+                uncertainty_value = segment_uncertainty(segment)
                 
-                # Synthesize name from label (name field no longer stored)
-                # Use custom_name if it exists, otherwise synthesize default
-                if 'custom_name' in segment:
-                    segment_name = segment['custom_name']
-                elif label == max_label:
-                    segment_name = 'Noise'
-                else:
-                    segment_name = f'Segment_{label}'
+                seg_display_name = segment_name(segment)
                 
                 # Skip if already done
-                if segment.get('done', False):
-                    print(f"DEBUG:   Skipping {segment_name}: marked as done")
+                if segment_done(segment):
+                    print(f"DEBUG:   Skipping {seg_display_name}: marked as done")
                     segments_skipped += 1
                     continue
                 
                 # Skip Noise segment (identified by max label)
                 if label == max_label:
-                    print(f"DEBUG:   Skipping {segment_name}: Noise segment")
+                    print(f"DEBUG:   Skipping {seg_display_name}: Noise segment")
                     segments_skipped += 1
                     continue
                 
                 # Skip if too small
-                if segment.get('counts', 0) < min_size:
+                if segment_count(segment) < min_size:
                     segments_skipped += 1
                     continue
                 
@@ -741,7 +739,7 @@ class DataManager:
                     seg_priority = SegmentPriority(
                         dataset_name=triplet.base_name,
                         segment_label=label,
-                        segment_name=segment_name,  # Synthesized from label
+                        segment_name=seg_display_name,
                         uncertainty=uncertainty_value,
                         triplet=triplet
                     )
@@ -755,10 +753,10 @@ class DataManager:
                 # Count voxels: sum counts from all non-done, non-Noise segments at max uncertainty
                 tolerance = 1e-6
                 for segment in segments:
-                    if (not segment.get('done', False) and 
-                        segment['label'] != max_label and
-                        abs(segment.get('uncertainty', 0.0) - max_uncertainty) < tolerance):
-                        voxel_count_at_max += segment.get('counts', 0)
+                    if (not segment_done(segment) and
+                        segment_label(segment) != max_label and
+                        abs(segment_uncertainty(segment) - max_uncertainty) < tolerance):
+                        voxel_count_at_max += segment_count(segment)
                 
                 triplet.max_uncertainty_excluding_noise = max_uncertainty
                 triplet.voxel_count_at_max_uncertainty = voxel_count_at_max

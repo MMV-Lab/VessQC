@@ -148,17 +148,21 @@ TODO
 
 ## Contributing
 
-Contributions are very welcome. Tests can be run with [tox], please ensure
-the coverage at least stays the same before you submit a pull request.
+Contributions and bug reports are welcome.
+
+Please include:
+
+- a detailed problem description,
+- steps to reproduce the issue,
+- example data if possible.
+
+---
 
 ## License
 
-Distributed under the terms of the [BSD-3] license,
-"VessQC" is free and open source software
+Distributed under the terms of the BSD-3 license.
 
-## Issues
-
-If you encounter any problems, please [file an issue] along with a detailed description.
+---
 
 [napari]: https://github.com/napari/napari
 [Cookiecutter]: https://github.com/audreyr/cookiecutter
