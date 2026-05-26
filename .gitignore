@@ -71,6 +71,9 @@ target/
 venv/
 .vscode/
 
+# Cursor
+.cursor/
+
 # IPython Notebook
 .ipynb_checkpoints
 
